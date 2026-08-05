@@ -7,8 +7,14 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type {
+  ChangeStatus,
   CreateRemoteRepositoryInput,
+  DeploymentState,
+  NormalizedEnvironment,
+  NormalizedIssue,
+  NormalizedIssueDetail,
   NormalizedPipeline,
+  NormalizedPullRequest,
   PipelineStatus,
   RemoteRepositoryView,
 } from './integrations.types';
@@ -51,6 +57,85 @@ interface GitHubWorkflowRunsResponse {
   workflow_runs: GitHubWorkflowRunResponse[];
 }
 
+interface GitHubIssueUserResponse {
+  login: string;
+  avatar_url: string | null;
+}
+
+interface GitHubIssueResponse {
+  id: number;
+  number: number;
+  title: string;
+  body: string | null;
+  state: 'open' | 'closed';
+  user: GitHubIssueUserResponse | null;
+  assignees: GitHubIssueUserResponse[];
+  labels: Array<{ name: string | null }>;
+  comments: number;
+  html_url: string;
+  created_at: string;
+  updated_at: string;
+  pull_request?: unknown;
+}
+
+interface GitHubIssueCommentResponse {
+  id: number;
+  user: GitHubIssueUserResponse | null;
+  body: string;
+  html_url: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface GitHubPullRequestResponse {
+  id: number;
+  number: number;
+  title: string;
+  body: string | null;
+  state: 'open' | 'closed';
+  draft: boolean;
+  merged_at: string | null;
+  mergeable?: boolean | null;
+  mergeable_state?: string;
+  user: GitHubIssueUserResponse | null;
+  requested_reviewers: GitHubIssueUserResponse[];
+  labels: Array<{ name: string | null }>;
+  head: { ref: string; sha: string };
+  base: { ref: string };
+  html_url: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface GitHubCommitStatusResponse {
+  state: 'error' | 'failure' | 'pending' | 'success';
+}
+
+interface GitHubDeploymentResponse {
+  id: number;
+  environment: string;
+  ref: string;
+  sha: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface GitHubDeploymentStatusResponse {
+  id: number;
+  state:
+    | 'error'
+    | 'failure'
+    | 'inactive'
+    | 'in_progress'
+    | 'pending'
+    | 'queued'
+    | 'success';
+  environment_url: string | null;
+  target_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface GitHubAccount {
   id: string;
   username: string;
@@ -84,6 +169,26 @@ function normalizeWorkflowRunStatus(
   if (conclusion === 'cancelled') return 'canceled';
   if (conclusion === 'skipped') return 'skipped';
 
+  return 'unknown';
+}
+
+function normalizeGitHubChangeStatus(
+  state: GitHubCommitStatusResponse['state'],
+): ChangeStatus {
+  if (state === 'success') return 'success';
+  if (state === 'failure' || state === 'error') return 'failed';
+  if (state === 'pending') return 'pending';
+  return 'unknown';
+}
+
+function normalizeGitHubDeploymentState(
+  state: GitHubDeploymentStatusResponse['state'] | undefined,
+): DeploymentState {
+  if (state === 'success') return 'success';
+  if (state === 'failure' || state === 'error') return 'failed';
+  if (state === 'in_progress') return 'running';
+  if (state === 'pending' || state === 'queued') return 'pending';
+  if (state === 'inactive') return 'inactive';
   return 'unknown';
 }
 
@@ -149,6 +254,147 @@ export class GitHubClientService {
     }));
   }
 
+  async listIssues(
+    token: string,
+    repositoryPath: string,
+  ): Promise<NormalizedIssue[]> {
+    const issues = await this.request<GitHubIssueResponse[]>(
+      token,
+      `/repos/${repositoryPath
+        .split('/')
+        .map((segment) => encodeURIComponent(segment))
+        .join('/')}/issues?state=all&sort=updated&direction=desc&per_page=20`,
+    );
+
+    return issues
+      .filter((issue) => !issue.pull_request)
+      .map((issue) => this.toIssue(issue));
+  }
+
+  async getIssue(
+    token: string,
+    repositoryPath: string,
+    issueNumber: number,
+  ): Promise<NormalizedIssueDetail> {
+    const encodedPath = repositoryPath
+      .split('/')
+      .map((segment) => encodeURIComponent(segment))
+      .join('/');
+    const [issue, comments] = await Promise.all([
+      this.request<GitHubIssueResponse>(
+        token,
+        `/repos/${encodedPath}/issues/${issueNumber}`,
+      ),
+      this.request<GitHubIssueCommentResponse[]>(
+        token,
+        `/repos/${encodedPath}/issues/${issueNumber}/comments?per_page=50`,
+      ),
+    ]);
+
+    if (issue.pull_request) {
+      throw new NotFoundException('Cette ressource est une pull request.');
+    }
+
+    return {
+      ...this.toIssue(issue),
+      body: issue.body,
+      comments: comments.map((comment) => ({
+        id: String(comment.id),
+        author: {
+          username: comment.user?.login ?? 'ghost',
+          avatarUrl: comment.user?.avatar_url ?? null,
+        },
+        body: comment.body,
+        createdAt: comment.created_at,
+        updatedAt: comment.updated_at,
+        webUrl: comment.html_url,
+      })),
+    };
+  }
+
+  async listPullRequests(
+    token: string,
+    repositoryPath: string,
+  ): Promise<NormalizedPullRequest[]> {
+    const encodedPath = this.encodeRepositoryPath(repositoryPath);
+    const pullRequests = await this.request<GitHubPullRequestResponse[]>(
+      token,
+      `/repos/${encodedPath}/pulls?state=all&sort=updated&direction=desc&per_page=20`,
+    );
+
+    return Promise.all(
+      pullRequests.map(async (pullRequest) => {
+        const status = await this.request<GitHubCommitStatusResponse>(
+          token,
+          `/repos/${encodedPath}/commits/${pullRequest.head.sha}/status`,
+        ).catch(() => null);
+        return this.toPullRequest(
+          pullRequest,
+          status ? normalizeGitHubChangeStatus(status.state) : 'unknown',
+        );
+      }),
+    );
+  }
+
+  async getPullRequest(
+    token: string,
+    repositoryPath: string,
+    pullRequestNumber: number,
+  ): Promise<NormalizedPullRequest> {
+    const encodedPath = this.encodeRepositoryPath(repositoryPath);
+    const pullRequest = await this.request<GitHubPullRequestResponse>(
+      token,
+      `/repos/${encodedPath}/pulls/${pullRequestNumber}`,
+    );
+    const status = await this.request<GitHubCommitStatusResponse>(
+      token,
+      `/repos/${encodedPath}/commits/${pullRequest.head.sha}/status`,
+    ).catch(() => null);
+    return this.toPullRequest(
+      pullRequest,
+      status ? normalizeGitHubChangeStatus(status.state) : 'unknown',
+    );
+  }
+
+  async listEnvironments(
+    token: string,
+    repositoryPath: string,
+  ): Promise<NormalizedEnvironment[]> {
+    const encodedPath = this.encodeRepositoryPath(repositoryPath);
+    const deployments = await this.request<GitHubDeploymentResponse[]>(
+      token,
+      `/repos/${encodedPath}/deployments?per_page=20`,
+    );
+    const latestByEnvironment = deployments.filter(
+      (deployment, index, all) =>
+        all.findIndex(
+          (candidate) => candidate.environment === deployment.environment,
+        ) === index,
+    );
+
+    return Promise.all(
+      latestByEnvironment.map(async (deployment) => {
+        const statuses = await this.request<GitHubDeploymentStatusResponse[]>(
+          token,
+          `/repos/${encodedPath}/deployments/${deployment.id}/statuses?per_page=1`,
+        ).catch(() => []);
+        const status = statuses[0];
+        return {
+          id: `${deployment.environment}:${deployment.id}`,
+          name: deployment.environment || 'default',
+          state: normalizeGitHubDeploymentState(status?.state),
+          url: status?.environment_url ?? status?.target_url ?? null,
+          ref: deployment.ref,
+          sha: deployment.sha,
+          shortSha: deployment.sha.slice(0, 8),
+          deploymentId: String(deployment.id),
+          createdAt: deployment.created_at,
+          updatedAt: status?.updated_at ?? deployment.updated_at,
+        } satisfies NormalizedEnvironment;
+      }),
+    );
+  }
+
   async createRepository(
     token: string,
     connectionId: string,
@@ -189,6 +435,81 @@ export class GitHubClientService {
     };
   }
 
+  private toIssue(issue: GitHubIssueResponse): NormalizedIssue {
+    return {
+      id: String(issue.id),
+      number: issue.number,
+      title: issue.title,
+      state: issue.state,
+      author: {
+        username: issue.user?.login ?? 'ghost',
+        avatarUrl: issue.user?.avatar_url ?? null,
+      },
+      assignees: issue.assignees.map((assignee) => ({
+        username: assignee.login,
+        avatarUrl: assignee.avatar_url,
+      })),
+      labels: issue.labels
+        .map((label) => label.name?.trim())
+        .filter((label): label is string => Boolean(label)),
+      commentCount: issue.comments,
+      webUrl: issue.html_url,
+      createdAt: issue.created_at,
+      updatedAt: issue.updated_at,
+    };
+  }
+
+  private toPullRequest(
+    pullRequest: GitHubPullRequestResponse,
+    pipelineStatus: ChangeStatus,
+  ): NormalizedPullRequest {
+    return {
+      id: String(pullRequest.id),
+      number: pullRequest.number,
+      title: pullRequest.title,
+      description: pullRequest.body,
+      state: pullRequest.merged_at
+        ? 'merged'
+        : pullRequest.draft
+          ? 'draft'
+          : pullRequest.state,
+      author: {
+        username: pullRequest.user?.login ?? 'ghost',
+        avatarUrl: pullRequest.user?.avatar_url ?? null,
+      },
+      reviewers: pullRequest.requested_reviewers.map((reviewer) => ({
+        username: reviewer.login,
+        avatarUrl: reviewer.avatar_url,
+      })),
+      labels: pullRequest.labels
+        .map((label) => label.name?.trim())
+        .filter((label): label is string => Boolean(label)),
+      sourceBranch: pullRequest.head.ref,
+      targetBranch: pullRequest.base.ref,
+      sha: pullRequest.head.sha,
+      shortSha: pullRequest.head.sha.slice(0, 8),
+      pipelineStatus,
+      mergeable: pullRequest.mergeable ?? null,
+      hasConflicts:
+        pullRequest.mergeable === false ||
+        pullRequest.mergeable_state === 'dirty'
+          ? true
+          : pullRequest.mergeable === true
+            ? false
+            : null,
+      webUrl: pullRequest.html_url,
+      createdAt: pullRequest.created_at,
+      updatedAt: pullRequest.updated_at,
+    };
+  }
+
+  private encodeRepositoryPath(repositoryPath: string): string {
+    return repositoryPath
+      .split('/')
+      .map((segment) => encodeURIComponent(segment))
+      .join('/');
+  }
+
   private async request<T>(
     token: string,
     path: string,
@@ -226,9 +547,11 @@ export class GitHubClientService {
       const providerMessage = (payload as { message?: string } | null)?.message;
       const guidance = path.includes('/actions/runs')
         ? 'La permission Actions (lecture) est requise pour lire les exécutions.'
-        : path === '/user/repos'
-          ? 'La permission Administration (écriture) est requise pour créer un repository.'
-          : 'Vérifiez les permissions du token.';
+        : path.includes('/issues')
+          ? 'La permission Issues (lecture) est requise pour lire les issues.'
+          : path === '/user/repos'
+            ? 'La permission Administration (écriture) est requise pour créer un repository.'
+            : 'Vérifiez les permissions du token.';
       throw new ForbiddenException(
         providerMessage
           ? `${providerMessage} ${guidance}`
@@ -236,12 +559,16 @@ export class GitHubClientService {
       );
     }
 
-    if (response.status === 404 && path.includes('/actions/runs')) {
+    if (
+      response.status === 404 &&
+      (path.includes('/actions/runs') || path.includes('/issues'))
+    ) {
       const repositoryPath = path.match(
-        /^\/repos\/([^?]+)\/actions\/runs/,
+        /^\/repos\/([^?]+)\/(?:actions\/runs|issues)/,
       )?.[1];
+      const permission = path.includes('/issues') ? 'Issues' : 'Actions';
       throw new NotFoundException(
-        `GitHub ne permet pas d’accéder à ce repository. Ajoutez ${repositoryPath ?? 'ce repository'} aux repositories autorisés du token et accordez la permission Actions (lecture), puis reconnectez GitHub.`,
+        `GitHub ne permet pas d’accéder à ce repository. Ajoutez ${repositoryPath ?? 'ce repository'} aux repositories autorisés du token et accordez la permission ${permission} (lecture), puis reconnectez GitHub.`,
       );
     }
 
