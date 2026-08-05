@@ -189,7 +189,7 @@ function RepositoryPipelineGroup({
         <div className="px-4 py-8 text-center">
           <CircleDashed className="mx-auto size-5 text-muted-foreground/60" />
           <p className="mt-2 text-xs text-muted-foreground">
-            Aucune exécution CI/CD récente sur ce repository.
+            Aucune exécution CI / CD récente sur ce repository.
           </p>
         </div>
       )}
@@ -220,7 +220,7 @@ export function ProjectPipelinesPanel({
           setError(
             loadError instanceof Error
               ? loadError.message
-              : "Impossible de charger les pipelines.",
+              : "Impossible de charger les exécutions CI / CD.",
           );
         }
       })
@@ -234,7 +234,7 @@ export function ProjectPipelinesPanel({
     <section className="space-y-4">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="font-heading text-sm font-semibold">CI/CD</h2>
+          <h2 className="font-heading text-sm font-semibold">CI / CD</h2>
           <p className="mt-1 text-xs text-muted-foreground">
             Les cinq exécutions GitHub Actions ou GitLab les plus récentes.
           </p>

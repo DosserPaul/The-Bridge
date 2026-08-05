@@ -270,6 +270,323 @@ export interface ProjectPipelines {
   repositories: RepositoryPipelines[];
 }
 
+export interface Issue {
+  id: string;
+  number: number;
+  title: string;
+  state: "open" | "closed";
+  author: {
+    username: string;
+    avatarUrl: string | null;
+  };
+  assignees: Array<{
+    username: string;
+    avatarUrl: string | null;
+  }>;
+  labels: string[];
+  commentCount: number;
+  webUrl: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IssueComment {
+  id: string;
+  author: {
+    username: string;
+    avatarUrl: string | null;
+  };
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  webUrl: string | null;
+}
+
+export interface IssueDetail extends Issue {
+  body: string | null;
+  comments: IssueComment[];
+}
+
+export interface RepositoryIssues {
+  repositoryId: string;
+  repositoryName: string;
+  provider: "github" | "gitlab" | "unknown";
+  state: "ready" | "connection_required" | "unsupported" | "error";
+  message?: string;
+  issues: Issue[];
+}
+
+export interface ProjectIssues {
+  projectId: string;
+  repositories: RepositoryIssues[];
+}
+
+export interface ProjectIssueDetail {
+  projectId: string;
+  repositoryId: string;
+  repositoryName: string;
+  provider: "github" | "gitlab";
+  issue: IssueDetail;
+}
+
+export type PullRequestState = "open" | "closed" | "merged" | "draft";
+export type ChangeStatus =
+  "pending" | "running" | "success" | "failed" | "canceled" | "unknown";
+
+export interface PullRequest {
+  id: string;
+  number: number;
+  title: string;
+  description: string | null;
+  state: PullRequestState;
+  author: { username: string; avatarUrl: string | null };
+  reviewers: Array<{ username: string; avatarUrl: string | null }>;
+  labels: string[];
+  sourceBranch: string;
+  targetBranch: string;
+  sha: string;
+  shortSha: string;
+  pipelineStatus: ChangeStatus;
+  mergeable: boolean | null;
+  hasConflicts: boolean | null;
+  webUrl: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RepositoryPullRequests {
+  repositoryId: string;
+  repositoryName: string;
+  provider: "github" | "gitlab" | "unknown";
+  state: "ready" | "connection_required" | "unsupported" | "error";
+  message?: string;
+  pullRequests: PullRequest[];
+}
+
+export interface ProjectPullRequests {
+  projectId: string;
+  repositories: RepositoryPullRequests[];
+}
+
+export interface ProjectPullRequestDetail {
+  projectId: string;
+  repositoryId: string;
+  repositoryName: string;
+  provider: "github" | "gitlab";
+  pullRequest: PullRequest;
+}
+
+export type DeploymentState =
+  "success" | "failed" | "running" | "pending" | "inactive" | "unknown";
+
+export interface ProjectEnvironment {
+  id: string;
+  name: string;
+  state: DeploymentState;
+  url: string | null;
+  ref: string | null;
+  sha: string | null;
+  shortSha: string | null;
+  deploymentId: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface RepositoryEnvironments {
+  repositoryId: string;
+  repositoryName: string;
+  provider: "github" | "gitlab" | "unknown";
+  state: "ready" | "connection_required" | "unsupported" | "error";
+  message?: string;
+  environments: ProjectEnvironment[];
+}
+
+export interface ProjectEnvironments {
+  projectId: string;
+  repositories: RepositoryEnvironments[];
+}
+
+export type MilestoneStatus = "planned" | "active" | "completed" | "canceled";
+export type MilestoneRiskLevel = "low" | "medium" | "high";
+
+export interface LinkedIssue {
+  repositoryId: string;
+  repositoryName: string;
+  number: number;
+  title: string;
+  webUrl: string;
+}
+
+export interface ProjectMilestone {
+  id: string;
+  projectId: string;
+  title: string;
+  description: string | null;
+  status: MilestoneStatus;
+  dueDate: string | null;
+  riskLevel: MilestoneRiskLevel;
+  blockers: string | null;
+  linkedIssues: LinkedIssue[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MilestoneInput {
+  title: string;
+  description?: string | null;
+  status?: MilestoneStatus;
+  dueDate?: string | null;
+  riskLevel?: MilestoneRiskLevel;
+  blockers?: string | null;
+  linkedIssues?: LinkedIssue[];
+}
+
+export type DecisionStatus =
+  "proposed" | "accepted" | "rejected" | "superseded";
+
+export interface ProjectDecision {
+  id: string;
+  projectId: string;
+  title: string;
+  status: DecisionStatus;
+  context: string;
+  decision: string;
+  rationale: string | null;
+  alternatives: string[];
+  consequences: string | null;
+  participants: string[];
+  decidedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DecisionInput {
+  title: string;
+  status?: DecisionStatus;
+  context: string;
+  decision: string;
+  rationale?: string | null;
+  alternatives?: string[];
+  consequences?: string | null;
+  participants?: string[];
+  decidedAt: string;
+}
+
+export type DocumentKind = "file" | "link";
+export type DocumentCategory =
+  "readme" | "specification" | "contract" | "technical" | "design" | "other";
+
+export interface ProjectDocument {
+  id: string;
+  projectId: string;
+  repositoryId: string | null;
+  repositoryName: string | null;
+  kind: DocumentKind;
+  category: DocumentCategory;
+  title: string;
+  location: string;
+  description: string | null;
+  source: "managed" | "discovered";
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface DocumentPreview {
+  title: string;
+  path: string;
+  content: string;
+  truncated: boolean;
+}
+
+export interface ProjectDocumentInput {
+  repositoryId?: string | null;
+  kind: DocumentKind;
+  category: DocumentCategory;
+  title: string;
+  location: string;
+  description?: string | null;
+}
+
+export interface ProjectFinance {
+  projectId: string;
+  dailyRateCents: number | null;
+  budgetCents: number | null;
+  currency: string;
+  nextInvoiceDate: string | null;
+  totalMinutes: number;
+  billableMinutes: number;
+  billableValueCents: number | null;
+  budgetConsumedPercent: number | null;
+  remainingBudgetCents: number | null;
+  updatedAt: string | null;
+}
+
+export interface ProjectTimeEntry {
+  id: string;
+  projectId: string;
+  date: string;
+  durationMinutes: number;
+  description: string;
+  billable: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectCommercial {
+  finance: ProjectFinance;
+  entries: ProjectTimeEntry[];
+}
+
+export type LocalActionName =
+  | "editor"
+  | "terminal"
+  | "finder"
+  | "dev"
+  | "test"
+  | "lint"
+  | "build"
+  | "coverage"
+  | "audit"
+  | "outdated";
+
+export type LocalActionStatus =
+  "queued" | "running" | "succeeded" | "failed" | "stopped";
+
+export interface LocalActionRun {
+  id: string;
+  projectId: string;
+  repositoryId: string;
+  repositoryName: string;
+  action: LocalActionName;
+  status: LocalActionStatus;
+  commandLabel: string;
+  output: string;
+  exitCode: number | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+}
+
+export interface ProjectTechnicalHealth {
+  repositories: Array<{
+    repositoryId: string;
+    repositoryName: string;
+    localPath: string;
+    packageManager: string | null;
+    dependencyCount: number | null;
+    lockfile: string | null;
+    lockfileUpdatedAt: string | null;
+    coveragePercent: number | null;
+    branches: Array<{
+      name: "main" | "develop";
+      exists: boolean;
+      lastCommitAt: string | null;
+    }>;
+    latestRuns: Partial<Record<LocalActionName, LocalActionRun>>;
+  }>;
+  latestBackupAt: string | null;
+}
+
 export interface ConnectGitLabInput {
   baseUrl: string;
   token: string;
@@ -335,6 +652,12 @@ export type BackupTable =
   | "providerConnections"
   | "projects"
   | "repositories"
+  | "projectMilestones"
+  | "projectDecisions"
+  | "projectDocuments"
+  | "projectFinances"
+  | "projectTimeEntries"
+  | "localActionRuns"
   | "clientContacts"
   | "activityLogs";
 
@@ -572,6 +895,268 @@ export function getProjectPipelines(
   signal?: AbortSignal,
 ): Promise<ProjectPipelines> {
   return apiRequest<ProjectPipelines>(`/projects/${projectId}/pipelines`, {
+    signal,
+  });
+}
+
+export function getProjectIssues(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<ProjectIssues> {
+  return apiRequest<ProjectIssues>(`/projects/${projectId}/issues`, { signal });
+}
+
+export function getProjectIssue(
+  projectId: string,
+  repositoryId: string,
+  issueNumber: number,
+  signal?: AbortSignal,
+): Promise<ProjectIssueDetail> {
+  return apiRequest<ProjectIssueDetail>(
+    `/projects/${projectId}/repositories/${repositoryId}/issues/${issueNumber}`,
+    { signal },
+  );
+}
+
+export function getProjectPullRequests(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<ProjectPullRequests> {
+  return apiRequest<ProjectPullRequests>(
+    `/projects/${projectId}/pull-requests`,
+    {
+      signal,
+    },
+  );
+}
+
+export function getProjectPullRequest(
+  projectId: string,
+  repositoryId: string,
+  pullRequestNumber: number,
+  signal?: AbortSignal,
+): Promise<ProjectPullRequestDetail> {
+  return apiRequest<ProjectPullRequestDetail>(
+    `/projects/${projectId}/repositories/${repositoryId}/pull-requests/${pullRequestNumber}`,
+    { signal },
+  );
+}
+
+export function getProjectEnvironments(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<ProjectEnvironments> {
+  return apiRequest<ProjectEnvironments>(
+    `/projects/${projectId}/environments`,
+    {
+      signal,
+    },
+  );
+}
+
+export function listProjectMilestones(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<ProjectMilestone[]> {
+  return apiRequest<ProjectMilestone[]>(`/projects/${projectId}/milestones`, {
+    signal,
+  });
+}
+
+export function createProjectMilestone(
+  projectId: string,
+  input: MilestoneInput,
+): Promise<ProjectMilestone> {
+  return apiRequest<ProjectMilestone>(`/projects/${projectId}/milestones`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateProjectMilestone(
+  projectId: string,
+  milestoneId: string,
+  input: Partial<MilestoneInput>,
+): Promise<ProjectMilestone> {
+  return apiRequest<ProjectMilestone>(
+    `/projects/${projectId}/milestones/${milestoneId}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  );
+}
+
+export function deleteProjectMilestone(
+  projectId: string,
+  milestoneId: string,
+): Promise<void> {
+  return apiRequest<void>(`/projects/${projectId}/milestones/${milestoneId}`, {
+    method: "DELETE",
+  });
+}
+
+export function listProjectDecisions(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<ProjectDecision[]> {
+  return apiRequest<ProjectDecision[]>(`/projects/${projectId}/decisions`, {
+    signal,
+  });
+}
+
+export function createProjectDecision(
+  projectId: string,
+  input: DecisionInput,
+): Promise<ProjectDecision> {
+  return apiRequest<ProjectDecision>(`/projects/${projectId}/decisions`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateProjectDecision(
+  projectId: string,
+  decisionId: string,
+  input: Partial<DecisionInput>,
+): Promise<ProjectDecision> {
+  return apiRequest<ProjectDecision>(
+    `/projects/${projectId}/decisions/${decisionId}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  );
+}
+
+export function deleteProjectDecision(
+  projectId: string,
+  decisionId: string,
+): Promise<void> {
+  return apiRequest<void>(`/projects/${projectId}/decisions/${decisionId}`, {
+    method: "DELETE",
+  });
+}
+
+export function listProjectDocuments(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<ProjectDocument[]> {
+  return apiRequest<ProjectDocument[]>(`/projects/${projectId}/documents`, {
+    signal,
+  });
+}
+
+export function createProjectDocument(
+  projectId: string,
+  input: ProjectDocumentInput,
+): Promise<ProjectDocument> {
+  return apiRequest<ProjectDocument>(`/projects/${projectId}/documents`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteProjectDocument(
+  projectId: string,
+  documentId: string,
+): Promise<void> {
+  return apiRequest<void>(`/projects/${projectId}/documents/${documentId}`, {
+    method: "DELETE",
+  });
+}
+
+export function previewProjectDocument(
+  projectId: string,
+  repositoryId: string,
+  path: string,
+  signal?: AbortSignal,
+): Promise<DocumentPreview> {
+  const query = new URLSearchParams({ repositoryId, path });
+  return apiRequest<DocumentPreview>(
+    `/projects/${projectId}/documents/preview?${query.toString()}`,
+    { signal },
+  );
+}
+
+export function getProjectCommercial(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<ProjectCommercial> {
+  return apiRequest<ProjectCommercial>(`/projects/${projectId}/commercial`, {
+    signal,
+  });
+}
+
+export function updateProjectFinance(
+  projectId: string,
+  input: {
+    dailyRateCents?: number | null;
+    budgetCents?: number | null;
+    currency?: string;
+    nextInvoiceDate?: string | null;
+  },
+): Promise<ProjectCommercial> {
+  return apiRequest<ProjectCommercial>(
+    `/projects/${projectId}/commercial/finance`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  );
+}
+
+export function createProjectTimeEntry(
+  projectId: string,
+  input: {
+    date: string;
+    durationMinutes: number;
+    description: string;
+    billable?: boolean;
+  },
+): Promise<ProjectCommercial> {
+  return apiRequest<ProjectCommercial>(
+    `/projects/${projectId}/commercial/time-entries`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export function deleteProjectTimeEntry(
+  projectId: string,
+  entryId: string,
+): Promise<void> {
+  return apiRequest<void>(
+    `/projects/${projectId}/commercial/time-entries/${entryId}`,
+    { method: "DELETE" },
+  );
+}
+
+export function listLocalActionRuns(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<LocalActionRun[]> {
+  return apiRequest<LocalActionRun[]>(`/projects/${projectId}/local-actions`, {
+    signal,
+  });
+}
+
+export function launchLocalAction(
+  projectId: string,
+  repositoryId: string,
+  action: LocalActionName,
+): Promise<LocalActionRun> {
+  return apiRequest<LocalActionRun>(
+    `/projects/${projectId}/repositories/${repositoryId}/local-actions/${action}`,
+    { method: "POST" },
+  );
+}
+
+export function stopLocalAction(
+  projectId: string,
+  runId: string,
+): Promise<LocalActionRun> {
+  return apiRequest<LocalActionRun>(
+    `/projects/${projectId}/local-actions/${runId}/stop`,
+    { method: "POST" },
+  );
+}
+
+export function getProjectTechnicalHealth(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<ProjectTechnicalHealth> {
+  return apiRequest<ProjectTechnicalHealth>(`/projects/${projectId}/health`, {
     signal,
   });
 }
