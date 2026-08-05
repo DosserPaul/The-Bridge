@@ -46,6 +46,15 @@ function breadcrumbs(pathname: string): string[] {
   }
   if (pathname.startsWith("/clients")) return ["Workspace", "Clients"];
   if (pathname === "/projects/new") return ["Workspace", "Projects", "New"];
+  if (pathname.endsWith("/edit") && pathname.startsWith("/projects/")) {
+    return ["Workspace", "Projects", "Edit"];
+  }
+  if (
+    pathname.endsWith("/repositories/new") &&
+    pathname.startsWith("/projects/")
+  ) {
+    return ["Workspace", "Projects", "Repository", "New"];
+  }
   if (pathname.startsWith("/projects/")) {
     return ["Workspace", "Projects", "Overview"];
   }

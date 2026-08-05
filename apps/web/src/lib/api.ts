@@ -19,6 +19,7 @@ export interface RepositoryState {
 
 export interface Repository {
   id: string;
+  connectionId: string | null;
   name: string;
   localPath: string;
   remoteUrl: string | null;
@@ -68,6 +69,33 @@ export interface CreateProjectInput {
   remoteRepositoryName?: string;
   repositoryVisibility?: "private" | "public";
   initializeReadme?: boolean;
+}
+
+export interface UpdateProjectInput {
+  name?: string;
+  logoDataUrl?: string | null;
+  description?: string | null;
+  status?: Project["status"];
+  priority?: Project["priority"];
+  types?: string[];
+  technologies?: string[];
+  startDate?: string | null;
+  deadline?: string | null;
+  followUpDate?: string | null;
+  followUpNote?: string | null;
+  clientId?: string | null;
+}
+
+export interface CreateRepositoryInput {
+  repositoryPath: string;
+  repositoryMode?: "local" | "existing" | "create";
+  provider?: "github" | "gitlab";
+  connectionId?: string;
+  remoteRepositoryId?: string;
+  remoteRepositoryName?: string;
+  repositoryVisibility?: "private" | "public";
+  initializeReadme?: boolean;
+  description?: string;
 }
 
 export interface ValidateRepositoryPathInput {
@@ -394,6 +422,56 @@ export function createProject(input: CreateProjectInput): Promise<Project> {
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export function updateProject(
+  projectId: string,
+  input: UpdateProjectInput,
+): Promise<Project> {
+  return apiRequest<Project>(`/projects/${projectId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function archiveProject(projectId: string): Promise<Project> {
+  return apiRequest<Project>(`/projects/${projectId}/archive`, {
+    method: "POST",
+  });
+}
+
+export function addProjectRepository(
+  projectId: string,
+  input: CreateRepositoryInput,
+): Promise<Project> {
+  return apiRequest<Project>(`/projects/${projectId}/repositories`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function removeProjectRepository(
+  projectId: string,
+  repositoryId: string,
+): Promise<void> {
+  return apiRequest<void>(
+    `/projects/${projectId}/repositories/${repositoryId}`,
+    { method: "DELETE" },
+  );
+}
+
+export function associateRepositoryConnection(
+  projectId: string,
+  repositoryId: string,
+  connectionId: string | null,
+): Promise<Repository> {
+  return apiRequest<Repository>(
+    `/projects/${projectId}/repositories/${repositoryId}/connection`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ connectionId }),
+    },
+  );
 }
 
 export function validateRepositoryPath(

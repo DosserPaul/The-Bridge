@@ -155,7 +155,11 @@ export function SidebarNavigation() {
   useEffect(() => {
     const controller = new AbortController();
     void listProjects(controller.signal, { silentActivity: true })
-      .then((data) => setProjects(data.slice(0, 4)))
+      .then((data) =>
+        setProjects(
+          data.filter((project) => project.status !== "archived").slice(0, 4),
+        ),
+      )
       .catch(() => undefined);
     return () => controller.abort();
   }, []);

@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   AlertTriangle,
   ArrowLeft,
+  Archive,
   CalendarCheck2,
   CheckCircle2,
   Clock3,
@@ -15,7 +16,10 @@ import {
   HardDrive,
   Layers3,
   MessageSquareText,
+  Pencil,
+  Plus,
   RefreshCw,
+  Trash2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ClientAvatar } from "@/components/clients/client-avatar";
@@ -29,7 +33,18 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ProjectPipelinesPanel } from "@/components/projects/project-pipelines";
-import { getProject, type Project, type Repository } from "@/lib/api";
+import {
+  archiveProject,
+  associateRepositoryConnection,
+  getProject,
+  listGitHubConnections,
+  listGitLabConnections,
+  removeProjectRepository,
+  type GitHubConnection,
+  type GitLabConnection,
+  type Project,
+  type Repository,
+} from "@/lib/api";
 import {
   formatCalendarDate,
   formatDate,
@@ -88,8 +103,71 @@ function DetailsSkeleton() {
   );
 }
 
-function RepositoryPanel({ repository }: { repository: Repository }) {
+type ProviderConnection = GitHubConnection | GitLabConnection;
+
+function RepositoryPanel({
+  projectId,
+  repository,
+  connections,
+  onChanged,
+  onError,
+}: {
+  projectId: string;
+  repository: Repository;
+  connections: ProviderConnection[];
+  onChanged: () => Promise<void>;
+  onError: (message: string) => void;
+}) {
   const state = repository.state;
+  const [isMutating, setIsMutating] = useState(false);
+  const compatibleConnections = connections.filter(
+    (connection) =>
+      repository.provider === "unknown" ||
+      connection.provider === repository.provider,
+  );
+
+  async function changeConnection(connectionId: string) {
+    setIsMutating(true);
+    try {
+      await associateRepositoryConnection(
+        projectId,
+        repository.id,
+        connectionId || null,
+      );
+      await onChanged();
+    } catch (mutationError) {
+      onError(
+        mutationError instanceof Error
+          ? mutationError.message
+          : "Impossible de modifier la connexion.",
+      );
+    } finally {
+      setIsMutating(false);
+    }
+  }
+
+  async function removeRepository() {
+    if (
+      !window.confirm(
+        `Retirer ${repository.name} de ce projet ? Le dossier local et le repository distant ne seront pas supprimés.`,
+      )
+    ) {
+      return;
+    }
+    setIsMutating(true);
+    try {
+      await removeProjectRepository(projectId, repository.id);
+      await onChanged();
+    } catch (mutationError) {
+      onError(
+        mutationError instanceof Error
+          ? mutationError.message
+          : "Impossible de retirer le repository.",
+      );
+    } finally {
+      setIsMutating(false);
+    }
+  }
 
   return (
     <Card>
@@ -189,6 +267,41 @@ function RepositoryPanel({ repository }: { repository: Repository }) {
             {repository.remoteUrl ?? "Aucun remote origin configuré"}
           </p>
         </div>
+
+        <div className="mt-5 flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-end">
+          <div className="min-w-0 flex-1 space-y-2">
+            <label
+              htmlFor={`connection-${repository.id}`}
+              className="text-[10px] font-semibold tracking-[0.14em] text-muted-foreground uppercase"
+            >
+              Connexion provider
+            </label>
+            <select
+              id={`connection-${repository.id}`}
+              className="h-8 w-full cursor-pointer appearance-auto rounded-lg border border-input bg-transparent px-2.5 pr-8 text-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+              value={repository.connectionId ?? ""}
+              disabled={isMutating}
+              onChange={(event) => void changeConnection(event.target.value)}
+            >
+              <option value="">Aucune connexion explicite</option>
+              {compatibleConnections.map((connection) => (
+                <option key={connection.id} value={connection.id}>
+                  {connection.provider === "github" ? "GitHub" : "GitLab"} · @
+                  {connection.account.username}
+                </option>
+              ))}
+            </select>
+          </div>
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            disabled={isMutating}
+            onClick={() => void removeRepository()}
+          >
+            <Trash2 /> Retirer
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
@@ -199,6 +312,8 @@ export function ProjectDetails({ projectId }: { projectId: string }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pipelineRefreshKey, setPipelineRefreshKey] = useState(0);
+  const [connections, setConnections] = useState<ProviderConnection[]>([]);
+  const [isArchiving, setIsArchiving] = useState(false);
 
   const loadProject = useCallback(
     async (signal?: AbortSignal) => {
@@ -243,6 +358,40 @@ export function ProjectDetails({ projectId }: { projectId: string }) {
     return () => controller.abort();
   }, [projectId]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    void Promise.all([
+      listGitHubConnections(controller.signal),
+      listGitLabConnections(controller.signal),
+    ])
+      .then(([github, gitlab]) => setConnections([...github, ...gitlab]))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
+  async function reloadAfterRepositoryChange() {
+    await loadProject();
+    setPipelineRefreshKey((current) => current + 1);
+  }
+
+  async function handleArchive() {
+    if (!project || !window.confirm(`Archiver le projet ${project.name} ?`))
+      return;
+    setIsArchiving(true);
+    try {
+      const archived = await archiveProject(project.id);
+      setProject(archived);
+    } catch (archiveError) {
+      setError(
+        archiveError instanceof Error
+          ? archiveError.message
+          : "Impossible d’archiver le projet.",
+      );
+    } finally {
+      setIsArchiving(false);
+    }
+  }
+
   if (isLoading) return <DetailsSkeleton />;
 
   if (error || !project) {
@@ -279,18 +428,36 @@ export function ProjectDetails({ projectId }: { projectId: string }) {
           <ArrowLeft data-icon="inline-start" />
           Projets
         </Link>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            setIsLoading(true);
-            setPipelineRefreshKey((current) => current + 1);
-            void loadProject();
-          }}
-        >
-          <RefreshCw data-icon="inline-start" />
-          Actualiser
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href={`/projects/${project.id}/edit`}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            <Pencil /> Modifier
+          </Link>
+          {project.status !== "archived" ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isArchiving}
+              onClick={() => void handleArchive()}
+            >
+              <Archive /> Archiver
+            </Button>
+          ) : null}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setIsLoading(true);
+              setPipelineRefreshKey((current) => current + 1);
+              void loadProject();
+            }}
+          >
+            <RefreshCw data-icon="inline-start" />
+            Actualiser
+          </Button>
+        </div>
       </div>
 
       <section className="flex items-start gap-4">
@@ -380,13 +547,32 @@ export function ProjectDetails({ projectId }: { projectId: string }) {
       </section>
 
       <section className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4">
           <h2 className="font-heading text-sm font-semibold">Repositories</h2>
-          <p className="text-xs text-muted-foreground">Lecture seule</p>
+          <Link
+            href={`/projects/${project.id}/repositories/new`}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            <Plus /> Ajouter
+          </Link>
         </div>
         {project.repositories.map((repository) => (
-          <RepositoryPanel key={repository.id} repository={repository} />
+          <RepositoryPanel
+            key={repository.id}
+            projectId={project.id}
+            repository={repository}
+            connections={connections}
+            onChanged={reloadAfterRepositoryChange}
+            onError={setError}
+          />
         ))}
+        {!project.repositories.length ? (
+          <Card className="border-dashed">
+            <CardContent className="py-10 text-center text-sm text-muted-foreground">
+              Aucun repository associé à ce projet.
+            </CardContent>
+          </Card>
+        ) : null}
       </section>
 
       <ProjectPipelinesPanel
