@@ -1,8 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { HttpException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { GitHubClientService } from './github-client.service';
 import { GitLabClientService } from './gitlab-client.service';
 import {
   IntegrationsService,
+  type GitHubConnectionRecord,
   type GitLabConnectionRecord,
 } from './integrations.service';
 import type {
@@ -82,6 +84,7 @@ export class ProjectPipelinesService {
     private readonly database: DatabaseService,
     private readonly integrations: IntegrationsService,
     private readonly gitlab: GitLabClientService,
+    private readonly github: GitHubClientService,
   ) {}
 
   async findForProject(projectId: string): Promise<ProjectPipelinesView> {
@@ -99,13 +102,18 @@ export class ProjectPipelinesService {
          ORDER BY created_at ASC`,
       )
       .all(projectId) as RepositoryRow[];
-    const connections = this.integrations.findAllGitLabRecords();
+    const gitLabConnections = this.integrations.findAllGitLabRecords();
+    const gitHubConnections = this.integrations.findAllGitHubRecords();
 
     return {
       projectId,
       repositories: await Promise.all(
         repositories.map((repository) =>
-          this.findForRepository(repository, connections),
+          this.findForRepository(
+            repository,
+            gitLabConnections,
+            gitHubConnections,
+          ),
         ),
       ),
     };
@@ -113,7 +121,8 @@ export class ProjectPipelinesService {
 
   private async findForRepository(
     repository: RepositoryRow,
-    connections: GitLabConnectionRecord[],
+    gitLabConnections: GitLabConnectionRecord[],
+    gitHubConnections: GitHubConnectionRecord[],
   ): Promise<RepositoryPipelinesView> {
     if (!repository.remote_url) {
       return this.emptyRepositoryView(
@@ -132,20 +141,83 @@ export class ProjectPipelinesService {
       );
     }
 
-    const connection = connections.find(
-      (candidate) =>
-        new URL(candidate.baseUrl).hostname.toLowerCase() === remote.hostname,
+    const provider = this.resolveProvider(repository.provider, remote.hostname);
+
+    if (provider === 'github') {
+      return this.findGitHubActions(repository, remote, gitHubConnections);
+    }
+
+    if (provider === 'gitlab') {
+      return this.findGitLabPipelines(repository, remote, gitLabConnections);
+    }
+
+    return this.emptyRepositoryView(
+      repository,
+      'unsupported',
+      'Le provider de ce remote origin n’est pas pris en charge.',
     );
+  }
+
+  private async findGitHubActions(
+    repository: RepositoryRow,
+    remote: GitRemoteLocation,
+    connections: GitHubConnectionRecord[],
+  ): Promise<RepositoryPipelinesView> {
+    const connection = this.findConnection(remote, connections);
 
     if (!connection) {
-      const isGitLab =
-        repository.provider === 'gitlab' || remote.hostname.includes('gitlab');
       return this.emptyRepositoryView(
         repository,
-        isGitLab ? 'connection_required' : 'unsupported',
-        isGitLab
-          ? `Connectez ${remote.hostname} pour lire ses pipelines.`
-          : 'Ce repository n’est pas hébergé sur une instance GitLab connectée.',
+        'connection_required',
+        'Connectez GitHub pour lire les exécutions Actions.',
+      );
+    }
+
+    try {
+      const token = await this.integrations.readToken(connection);
+      if (!token) {
+        return this.emptyRepositoryView(
+          repository,
+          'connection_required',
+          'Le token de cette connexion est absent du Trousseau macOS.',
+        );
+      }
+
+      const pipelines = await this.github.listWorkflowRuns(
+        token,
+        remote.projectPath,
+      );
+
+      return {
+        repositoryId: repository.id,
+        repositoryName: repository.name,
+        provider: 'github',
+        state: 'ready',
+        pipelines,
+      };
+    } catch (error) {
+      return this.emptyRepositoryView(
+        repository,
+        this.isConnectionError(error) ? 'connection_required' : 'error',
+        error instanceof Error
+          ? error.message
+          : 'Impossible de charger les exécutions GitHub Actions.',
+      );
+    }
+  }
+
+  private async findGitLabPipelines(
+    repository: RepositoryRow,
+    remote: GitRemoteLocation,
+    connections: GitLabConnectionRecord[],
+  ): Promise<RepositoryPipelinesView> {
+    const connection = this.findConnection(remote, connections);
+
+    if (!connection) {
+      return this.emptyRepositoryView(
+        repository,
+        'connection_required',
+        `Connectez ${remote.hostname} pour lire ses pipelines.`,
       );
     }
 
@@ -168,6 +240,7 @@ export class ProjectPipelinesService {
       return {
         repositoryId: repository.id,
         repositoryName: repository.name,
+        provider: 'gitlab',
         state: 'ready',
         pipelines,
       };
@@ -182,6 +255,35 @@ export class ProjectPipelinesService {
     }
   }
 
+  private findConnection<
+    Connection extends GitHubConnectionRecord | GitLabConnectionRecord,
+  >(
+    remote: GitRemoteLocation,
+    connections: Connection[],
+  ): Connection | undefined {
+    return connections.find(
+      (candidate) =>
+        new URL(candidate.baseUrl).hostname.toLowerCase() === remote.hostname,
+    );
+  }
+
+  private resolveProvider(
+    storedProvider: RepositoryRow['provider'],
+    hostname: string,
+  ): RepositoryRow['provider'] {
+    if (storedProvider !== 'unknown') return storedProvider;
+    if (hostname === 'github.com') return 'github';
+    if (hostname.includes('gitlab')) return 'gitlab';
+    return 'unknown';
+  }
+
+  private isConnectionError(error: unknown): boolean {
+    return (
+      error instanceof HttpException &&
+      [401, 403, 404].includes(error.getStatus())
+    );
+  }
+
   private emptyRepositoryView(
     repository: RepositoryRow,
     state: RepositoryPipelinesView['state'],
@@ -190,6 +292,7 @@ export class ProjectPipelinesService {
     return {
       repositoryId: repository.id,
       repositoryName: repository.name,
+      provider: repository.provider,
       state,
       message,
       pipelines: [],

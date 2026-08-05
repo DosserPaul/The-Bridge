@@ -37,6 +37,10 @@ export interface GitLabConnectionRecord extends ProviderConnectionRecord {
   provider: 'gitlab';
 }
 
+export interface GitHubConnectionRecord extends ProviderConnectionRecord {
+  provider: 'github';
+}
+
 interface ProviderConnectionRow {
   id: string;
   provider: Provider;
@@ -121,6 +125,13 @@ export class IntegrationsService {
     return this.findAllRecords('gitlab').filter(
       (record): record is GitLabConnectionRecord =>
         record.provider === 'gitlab',
+    );
+  }
+
+  findAllGitHubRecords(): GitHubConnectionRecord[] {
+    return this.findAllRecords('github').filter(
+      (record): record is GitHubConnectionRecord =>
+        record.provider === 'github',
     );
   }
 

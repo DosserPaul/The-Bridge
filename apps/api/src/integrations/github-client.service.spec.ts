@@ -103,6 +103,68 @@ describe('GitHubClientService', () => {
     ]);
   });
 
+  it('lists and normalizes the five latest GitHub Actions runs', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          workflow_runs: [
+            {
+              id: 912,
+              run_number: 18,
+              status: 'completed',
+              conclusion: 'success',
+              head_branch: 'develop',
+              head_sha: '1234567890abcdef',
+              html_url:
+                'https://github.com/DosserPaul/The-Bridge/actions/runs/912',
+              created_at: '2026-08-05T14:00:00Z',
+              updated_at: '2026-08-05T14:01:00Z',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    await expect(
+      github.listWorkflowRuns('github_pat_secret', 'DosserPaul/The-Bridge'),
+    ).resolves.toEqual([
+      {
+        id: '912',
+        number: 18,
+        status: 'success',
+        ref: 'develop',
+        sha: '1234567890abcdef',
+        shortSha: '12345678',
+        webUrl: 'https://github.com/DosserPaul/The-Bridge/actions/runs/912',
+        createdAt: '2026-08-05T14:00:00Z',
+        updatedAt: '2026-08-05T14:01:00Z',
+      },
+    ]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.github.com/repos/DosserPaul/The-Bridge/actions/runs?per_page=5',
+      expect.any(Object),
+    );
+  });
+
+  it('explains how to restore access to private repository Actions', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ message: 'Not Found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    await expect(
+      github.listWorkflowRuns(
+        'github_pat_without_repository_access',
+        'DosserPaul/The-Bridge',
+      ),
+    ).rejects.toThrow(
+      'Ajoutez DosserPaul/The-Bridge aux repositories autorisés du token',
+    );
+  });
+
   it('creates a private initialized repository', async () => {
     const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(
       new Response(

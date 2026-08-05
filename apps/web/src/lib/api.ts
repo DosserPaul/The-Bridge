@@ -231,6 +231,7 @@ export interface Pipeline {
 export interface RepositoryPipelines {
   repositoryId: string;
   repositoryName: string;
+  provider: "github" | "gitlab" | "unknown";
   state: "ready" | "connection_required" | "unsupported" | "error";
   message?: string;
   pipelines: Pipeline[];

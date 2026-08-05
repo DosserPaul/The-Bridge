@@ -74,6 +74,7 @@ export interface NormalizedPipeline {
 export interface RepositoryPipelinesView {
   repositoryId: string;
   repositoryName: string;
+  provider: 'github' | 'gitlab' | 'unknown';
   state: 'ready' | 'connection_required' | 'unsupported' | 'error';
   message?: string;
   pipelines: NormalizedPipeline[];
