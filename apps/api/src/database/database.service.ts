@@ -34,6 +34,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   readonly connection: Knex;
   readonly dialect: DatabaseDialect;
   readonly sqlitePath: string | null;
+  readonly dataDirectory: string;
 
   private initialization: Promise<void> | null = null;
 
@@ -45,6 +46,9 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     if (isPostgresUrl(target)) {
       this.dialect = 'postgres';
       this.sqlitePath = null;
+      this.dataDirectory =
+        process.env.CLAUDEHUB_DATA_PATH ??
+        resolve(findWorkspaceRoot(process.cwd()), '.data');
       this.connection = knex({
         client: 'pg',
         connection: target,
@@ -62,6 +66,10 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
 
     this.dialect = 'sqlite';
     this.sqlitePath = databasePath;
+    this.dataDirectory =
+      databasePath === ':memory:'
+        ? resolve(findWorkspaceRoot(process.cwd()), '.data')
+        : dirname(resolve(databasePath));
     this.connection = knex({
       client: 'better-sqlite3',
       connection: { filename: databasePath },

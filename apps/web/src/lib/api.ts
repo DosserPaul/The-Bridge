@@ -302,6 +302,35 @@ export interface ActivityQuery {
   limit?: number;
 }
 
+export type BackupTable =
+  | "clients"
+  | "providerConnections"
+  | "projects"
+  | "repositories"
+  | "clientContacts"
+  | "activityLogs";
+
+export interface DataStatus {
+  dialect: "sqlite" | "postgres";
+  dataDirectory: string;
+  counts: Record<BackupTable, number>;
+  credentialNote: string;
+}
+
+export interface LocalBackup {
+  id: string;
+  createdAt: string;
+  sizeBytes: number;
+  sourceDialect: "sqlite" | "postgres";
+  counts: Record<BackupTable, number>;
+}
+
+export interface RestoreResult {
+  restoredAt: string;
+  safetyBackup: LocalBackup;
+  counts: Record<BackupTable, number>;
+}
+
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:3101/api";
 
 export class ApiError extends Error {
@@ -490,4 +519,40 @@ export function getActivity(
   signal?: AbortSignal,
 ): Promise<ActivityDetail> {
   return apiRequest<ActivityDetail>(`/activity/${activityId}`, { signal });
+}
+
+export function getDataStatus(signal?: AbortSignal): Promise<DataStatus> {
+  return apiRequest<DataStatus>("/data/status", { signal });
+}
+
+export function listLocalBackups(signal?: AbortSignal): Promise<LocalBackup[]> {
+  return apiRequest<LocalBackup[]>("/data/backups", { signal });
+}
+
+export function createLocalBackup(): Promise<LocalBackup> {
+  return apiRequest<LocalBackup>("/data/backups", { method: "POST" });
+}
+
+export function restoreDataBackup(document: unknown): Promise<RestoreResult> {
+  return apiRequest<RestoreResult>("/data/restore", {
+    method: "POST",
+    body: JSON.stringify(document),
+  });
+}
+
+export function restoreLocalBackup(backupId: string): Promise<RestoreResult> {
+  return apiRequest<RestoreResult>(`/data/backups/${backupId}/restore`, {
+    method: "POST",
+  });
+}
+
+export async function downloadDataExport(): Promise<Blob> {
+  const response = await fetch(`${apiUrl}/data/export`);
+  if (!response.ok) {
+    throw new ApiError(
+      "THE BRIDGE n’a pas pu exporter les données.",
+      response.status,
+    );
+  }
+  return response.blob();
 }

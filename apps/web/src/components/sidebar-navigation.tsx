@@ -8,6 +8,7 @@ import {
   CheckSquare2,
   FolderKanban,
   History,
+  HardDrive,
   Inbox,
   Lightbulb,
   Plus,
@@ -64,6 +65,12 @@ const navigation: NavigationItem[] = [
     icon: Settings2,
     href: "/settings/integrations",
     match: (pathname) => pathname.startsWith("/settings/integrations"),
+  },
+  {
+    label: "Data",
+    icon: HardDrive,
+    href: "/settings/data",
+    match: (pathname) => pathname.startsWith("/settings/data"),
   },
 ];
 

@@ -7,6 +7,7 @@ import {
   Bell,
   Bot,
   FolderKanban,
+  HardDrive,
   History,
   Inbox,
   Lightbulb,
@@ -31,6 +32,7 @@ const mobileNavigation = [
   { label: "Security", icon: ShieldCheck },
   { label: "Activity", icon: History, href: "/activity" },
   { label: "Integrations", icon: PlugZap, href: "/settings/integrations" },
+  { label: "Data", icon: HardDrive, href: "/settings/data" },
 ];
 
 function breadcrumbs(pathname: string): string[] {
@@ -49,6 +51,9 @@ function breadcrumbs(pathname: string): string[] {
   }
   if (pathname.startsWith("/settings/integrations")) {
     return ["Workspace", "Settings", "Integrations"];
+  }
+  if (pathname.startsWith("/settings/data")) {
+    return ["Workspace", "Settings", "Data"];
   }
   return ["Workspace", "Projects"];
 }
