@@ -74,7 +74,7 @@ export class RemoteRepositoriesService {
   }
 
   private async connection(provider: Provider, connectionId: string) {
-    const connection = this.integrations.getConnectionRecord(
+    const connection = await this.integrations.getConnectionRecord(
       provider,
       connectionId,
     );

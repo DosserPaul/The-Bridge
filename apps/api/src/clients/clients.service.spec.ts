@@ -7,17 +7,18 @@ describe('ClientsService', () => {
   let database: DatabaseService;
   let clients: ClientsService;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     database = new DatabaseService(':memory:');
+    await database.initialize();
     clients = new ClientsService(database);
   });
 
-  afterEach(() => {
-    database.onModuleDestroy();
+  afterEach(async () => {
+    await database.onModuleDestroy();
   });
 
-  it('creates a client with its primary contact', () => {
-    const client = clients.create({
+  it('creates a client with its primary contact', async () => {
+    const client = await clients.create({
       name: 'Juris Global',
       kind: 'organization',
       status: 'active',
@@ -49,15 +50,15 @@ describe('ClientsService', () => {
     ]);
   });
 
-  it('updates client details, logo and primary contact', () => {
-    const client = clients.create({
+  it('updates client details, logo and primary contact', async () => {
+    const client = await clients.create({
       name: 'Defim',
       kind: 'organization',
       status: 'prospect',
       primaryContact: { name: 'Lina Petit' },
     });
 
-    const updated = clients.update(client.id, {
+    const updated = await clients.update(client.id, {
       name: 'Defim Studio',
       status: 'active',
       email: 'contact@defim.test',
@@ -84,8 +85,8 @@ describe('ClientsService', () => {
     });
   });
 
-  it('can remove the logo and primary contact', () => {
-    const client = clients.create({
+  it('can remove the logo and primary contact', async () => {
+    const client = await clients.create({
       name: 'Defim',
       kind: 'organization',
       status: 'active',
@@ -93,7 +94,7 @@ describe('ClientsService', () => {
       primaryContact: { name: 'Lina Petit' },
     });
 
-    const updated = clients.update(client.id, {
+    const updated = await clients.update(client.id, {
       logoDataUrl: null,
       primaryContact: null,
     });
@@ -102,8 +103,8 @@ describe('ClientsService', () => {
     expect(updated.contacts).toEqual([]);
   });
 
-  it('reports the projects and repositories attached to a client', () => {
-    const client = clients.create({
+  it('reports the projects and repositories attached to a client', async () => {
+    const client = await clients.create({
       name: 'Defim',
       kind: 'organization',
       status: 'active',
@@ -111,29 +112,24 @@ describe('ClientsService', () => {
     const projectId = randomUUID();
     const now = new Date().toISOString();
 
-    database.connection
-      .prepare(
-        `INSERT INTO projects (id, client_id, name, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run(projectId, client.id, 'Application mobile', now, now);
-    database.connection
-      .prepare(
-        `INSERT INTO repositories (
-           id, project_id, name, local_path, provider, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        randomUUID(),
-        projectId,
-        'mobile',
-        '/tmp/defim-mobile',
-        'unknown',
-        now,
-        now,
-      );
+    await database.connection('projects').insert({
+      id: projectId,
+      client_id: client.id,
+      name: 'Application mobile',
+      created_at: now,
+      updated_at: now,
+    });
+    await database.connection('repositories').insert({
+      id: randomUUID(),
+      project_id: projectId,
+      name: 'mobile',
+      local_path: '/tmp/defim-mobile',
+      provider: 'unknown',
+      created_at: now,
+      updated_at: now,
+    });
 
-    expect(clients.findOne(client.id)).toMatchObject({
+    await expect(clients.findOne(client.id)).resolves.toMatchObject({
       projectsCount: 1,
       repositoriesCount: 1,
       projects: [
@@ -145,19 +141,23 @@ describe('ClientsService', () => {
     });
   });
 
-  it('prevents duplicate client names', () => {
+  it('prevents duplicate client names', async () => {
     const input = {
       name: 'Juris Global',
       kind: 'organization' as const,
       status: 'active' as const,
     };
 
-    clients.create(input);
+    await clients.create(input);
 
-    expect(() => clients.create(input)).toThrow(ConflictException);
+    await expect(clients.create(input)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
   });
 
-  it('rejects an unknown client', () => {
-    expect(() => clients.findOne(randomUUID())).toThrow(NotFoundException);
+  it('rejects an unknown client', async () => {
+    await expect(clients.findOne(randomUUID())).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 });

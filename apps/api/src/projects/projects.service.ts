@@ -6,8 +6,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import type { Knex } from 'knex';
+import { isUniqueConstraintError } from '../database/database-error';
 import { DatabaseService } from '../database/database.service';
-import { isUniqueConstraintError } from '../database/sqlite-error';
 import { RemoteRepositoriesService } from '../integrations/remote-repositories.service';
 import type { CreateProjectDto } from './dto/create-project.dto';
 import type { ValidateRepositoryPathDto } from './dto/validate-repository-path.dto';
@@ -40,6 +41,7 @@ interface ProjectRow {
 interface RepositoryRow {
   id: string;
   project_id: string;
+  connection_id: string | null;
   name: string;
   local_path: string;
   remote_url: string | null;
@@ -63,71 +65,56 @@ export class ProjectsService {
 
   async create(input: CreateProjectDto): Promise<ProjectView> {
     this.validateDates(input);
-    if (input.clientId) this.requireClient(input.clientId);
+    if (input.clientId) await this.requireClient(input.clientId);
     const inspection = await this.prepareRepository(input);
     const now = new Date().toISOString();
     const projectId = randomUUID();
     const repositoryId = randomUUID();
 
     try {
-      this.database.connection.transaction(() => {
+      await this.database.connection.transaction(async (transaction) => {
         const clientId = input.clientId
-          ? this.requireClient(input.clientId)
+          ? await this.requireClient(input.clientId, transaction)
           : input.clientName
-            ? this.findOrCreateClient(input.clientName, now)
+            ? await this.findOrCreateClient(input.clientName, now, transaction)
             : null;
 
-        this.database.connection
-          .prepare(
-            `INSERT INTO projects (
-               id, client_id, name, logo_data_url, description, status,
-               priority, types_json, technologies_json, start_date, deadline,
-               follow_up_date, follow_up_note, created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .run(
-            projectId,
-            clientId,
-            input.name,
-            input.logoDataUrl ?? null,
-            input.description ?? null,
-            input.status ?? 'active',
-            input.priority ?? 'normal',
-            JSON.stringify(input.types ?? []),
-            JSON.stringify(input.technologies ?? []),
-            input.startDate ?? null,
-            input.deadline ?? null,
-            input.followUpDate ?? null,
-            input.followUpNote ?? null,
-            now,
-            now,
-          );
+        await transaction('projects').insert({
+          id: projectId,
+          client_id: clientId,
+          name: input.name,
+          logo_data_url: input.logoDataUrl ?? null,
+          description: input.description ?? null,
+          status: input.status ?? 'active',
+          priority: input.priority ?? 'normal',
+          types_json: JSON.stringify(input.types ?? []),
+          technologies_json: JSON.stringify(input.technologies ?? []),
+          start_date: input.startDate ?? null,
+          deadline: input.deadline ?? null,
+          follow_up_date: input.followUpDate ?? null,
+          follow_up_note: input.followUpNote ?? null,
+          created_at: now,
+          updated_at: now,
+        });
 
-        this.database.connection
-          .prepare(
-            `INSERT INTO repositories (
-               id, project_id, name, local_path, remote_url, provider,
-               created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .run(
-            repositoryId,
-            projectId,
-            inspection.name,
-            inspection.canonicalPath,
-            inspection.remoteUrl,
-            inspection.provider,
-            now,
-            now,
-          );
-      })();
+        await transaction('repositories').insert({
+          id: repositoryId,
+          project_id: projectId,
+          connection_id: input.connectionId ?? null,
+          name: inspection.name,
+          local_path: inspection.canonicalPath,
+          remote_url: inspection.remoteUrl,
+          provider: inspection.provider,
+          created_at: now,
+          updated_at: now,
+        });
+      });
     } catch (error) {
       if (isUniqueConstraintError(error, 'repositories.local_path')) {
         throw new ConflictException(
           'Ce repository est déjà rattaché à un projet.',
         );
       }
-
       throw error;
     }
 
@@ -139,7 +126,7 @@ export class ProjectsService {
   ): Promise<RepositoryPathValidation> {
     if (input.repositoryMode === 'local') {
       const inspection = await this.git.inspectRepository(input.repositoryPath);
-      this.assertRepositoryPathAvailable(inspection.canonicalPath);
+      await this.assertRepositoryPathAvailable(inspection.canonicalPath);
 
       return {
         repositoryMode: input.repositoryMode,
@@ -170,13 +157,27 @@ export class ProjectsService {
         ? resolve(input.repositoryPath, input.cloneDirectoryName!)
         : input.repositoryPath;
     const resolvedPath = await this.git.validateCloneDestination(requestedPath);
-    this.assertRepositoryPathAvailable(resolvedPath);
+    await this.assertRepositoryPathAvailable(resolvedPath);
 
     return {
       repositoryMode: input.repositoryMode,
       resolvedPath,
       repository: null,
     };
+  }
+
+  async findAll(): Promise<ProjectView[]> {
+    const projects = await this.selectProjects();
+    return Promise.all(projects.map((project) => this.toProjectView(project)));
+  }
+
+  async findOne(
+    projectId: string,
+    freshInspection?: RepositoryInspection,
+  ): Promise<ProjectView> {
+    const project = await this.selectProject(projectId);
+    if (!project) throw new NotFoundException('Projet introuvable.');
+    return this.toProjectView(project, freshInspection);
   }
 
   private async prepareRepository(
@@ -196,7 +197,7 @@ export class ProjectsService {
     const repositoryPath = await this.git.validateCloneDestination(
       input.repositoryPath,
     );
-    this.assertRepositoryPathAvailable(repositoryPath);
+    await this.assertRepositoryPathAvailable(repositoryPath);
 
     const remote =
       mode === 'existing'
@@ -249,11 +250,14 @@ export class ProjectsService {
     );
   }
 
-  private assertRepositoryPathAvailable(repositoryPath: string): void {
-    const existing = this.database.connection
-      .prepare('SELECT id FROM repositories WHERE local_path IN (?, ?) LIMIT 1')
-      .get(repositoryPath, resolve(repositoryPath)) as
-      { id: string } | undefined;
+  private async assertRepositoryPathAvailable(
+    repositoryPath: string,
+  ): Promise<void> {
+    const existing = await this.database
+      .connection<{ id: string }>('repositories')
+      .select('id')
+      .whereIn('local_path', [repositoryPath, resolve(repositoryPath)])
+      .first();
     if (existing) {
       throw new ConflictException(
         'Cette destination locale est déjà rattachée à un projet.',
@@ -274,130 +278,77 @@ export class ProjectsService {
     }
   }
 
-  async findAll(): Promise<ProjectView[]> {
-    const projects = this.selectProjects();
-    return Promise.all(projects.map((project) => this.toProjectView(project)));
-  }
-
-  async findOne(
-    projectId: string,
-    freshInspection?: RepositoryInspection,
-  ): Promise<ProjectView> {
-    const project = this.selectProject(projectId);
-
-    if (!project) {
-      throw new NotFoundException('Projet introuvable.');
-    }
-
-    return this.toProjectView(project, freshInspection);
-  }
-
-  private findOrCreateClient(name: string, now: string): string {
-    const existingClient = this.database.connection
-      .prepare('SELECT id, name FROM clients WHERE name = ? COLLATE NOCASE')
-      .get(name) as ClientRow | undefined;
-
-    if (existingClient) {
-      return existingClient.id;
-    }
+  private async findOrCreateClient(
+    name: string,
+    now: string,
+    transaction: Knex.Transaction,
+  ): Promise<string> {
+    const existingClient = await transaction<ClientRow>('clients')
+      .select('id', 'name')
+      .whereRaw('LOWER(name) = LOWER(?)', [name])
+      .first();
+    if (existingClient) return existingClient.id;
 
     const clientId = randomUUID();
-    this.database.connection
-      .prepare(
-        `INSERT INTO clients (id, name, created_at, updated_at)
-         VALUES (?, ?, ?, ?)`,
-      )
-      .run(clientId, name, now, now);
-
+    await transaction('clients').insert({
+      id: clientId,
+      name,
+      created_at: now,
+      updated_at: now,
+    });
     return clientId;
   }
 
-  private requireClient(clientId: string): string {
-    const client = this.database.connection
-      .prepare('SELECT id, name FROM clients WHERE id = ?')
-      .get(clientId) as ClientRow | undefined;
-
-    if (!client) {
-      throw new NotFoundException('Client introuvable.');
-    }
-
+  private async requireClient(
+    clientId: string,
+    connection: Knex | Knex.Transaction = this.database.connection,
+  ): Promise<string> {
+    const client = await connection<ClientRow>('clients')
+      .select('id', 'name')
+      .where({ id: clientId })
+      .first();
+    if (!client) throw new NotFoundException('Client introuvable.');
     return client.id;
   }
 
-  private selectProjects(): ProjectRow[] {
-    return this.database.connection
-      .prepare(
-        `SELECT
-           projects.id,
-           projects.name,
-           projects.logo_data_url,
-           projects.description,
-           projects.status,
-           projects.priority,
-           projects.types_json,
-           projects.technologies_json,
-           projects.start_date,
-           projects.deadline,
-           projects.follow_up_date,
-           projects.follow_up_note,
-           projects.client_id,
-           clients.name AS client_name,
-           projects.created_at,
-           projects.updated_at
-         FROM projects
-         LEFT JOIN clients ON clients.id = projects.client_id
-         ORDER BY projects.updated_at DESC`,
+  private async selectProjects(): Promise<ProjectRow[]> {
+    return this.database
+      .connection<ProjectRow>('projects')
+      .leftJoin('clients', 'clients.id', 'projects.client_id')
+      .select(
+        'projects.*',
+        this.database.connection.raw('clients.name AS client_name'),
       )
-      .all() as ProjectRow[];
+      .orderBy('projects.updated_at', 'desc');
   }
 
-  private selectProject(projectId: string): ProjectRow | undefined {
-    return this.database.connection
-      .prepare(
-        `SELECT
-           projects.id,
-           projects.name,
-           projects.logo_data_url,
-           projects.description,
-           projects.status,
-           projects.priority,
-           projects.types_json,
-           projects.technologies_json,
-           projects.start_date,
-           projects.deadline,
-           projects.follow_up_date,
-           projects.follow_up_note,
-           projects.client_id,
-           clients.name AS client_name,
-           projects.created_at,
-           projects.updated_at
-         FROM projects
-         LEFT JOIN clients ON clients.id = projects.client_id
-         WHERE projects.id = ?`,
+  private selectProject(projectId: string): Promise<ProjectRow | undefined> {
+    return this.database
+      .connection<ProjectRow>('projects')
+      .leftJoin('clients', 'clients.id', 'projects.client_id')
+      .select(
+        'projects.*',
+        this.database.connection.raw('clients.name AS client_name'),
       )
-      .get(projectId) as ProjectRow | undefined;
+      .where('projects.id', projectId)
+      .first();
   }
 
-  private selectRepositories(projectId: string): RepositoryRow[] {
-    return this.database.connection
-      .prepare(
-        `SELECT
-           id, project_id, name, local_path, remote_url, provider,
-           created_at, updated_at
-         FROM repositories
-         WHERE project_id = ?
-         ORDER BY created_at ASC`,
-      )
-      .all(projectId) as RepositoryRow[];
+  private selectRepositories(projectId: string): Promise<RepositoryRow[]> {
+    return this.database
+      .connection<RepositoryRow>('repositories')
+      .select('*')
+      .where('project_id', projectId)
+      .orderBy('created_at', 'asc');
   }
 
   private async toProjectView(
     project: ProjectRow,
     freshInspection?: RepositoryInspection,
   ): Promise<ProjectView> {
-    const repositories = this.selectRepositories(project.id);
+    const repositories = await this.selectRepositories(project.id);
     const repositoryViews = await Promise.all(
-      repositories.map(async (repository, index) =>
+      repositories.map((repository, index) =>
         this.toRepositoryView(
           repository,
           index === 0 ? freshInspection : undefined,
@@ -449,7 +400,7 @@ export class ProjectsService {
         ? freshInspection
         : await this.inspectStoredRepository(repository.local_path);
     const updatedAt = inspection
-      ? this.syncRepositoryMetadata(repository, inspection)
+      ? await this.syncRepositoryMetadata(repository, inspection)
       : repository.updated_at;
 
     return {
@@ -476,10 +427,10 @@ export class ProjectsService {
     }
   }
 
-  private syncRepositoryMetadata(
+  private async syncRepositoryMetadata(
     repository: RepositoryRow,
     inspection: RepositoryInspection,
-  ): string {
+  ): Promise<string> {
     if (
       repository.name === inspection.name &&
       repository.remote_url === inspection.remoteUrl &&
@@ -489,20 +440,15 @@ export class ProjectsService {
     }
 
     const updatedAt = new Date().toISOString();
-    this.database.connection
-      .prepare(
-        `UPDATE repositories
-         SET name = ?, remote_url = ?, provider = ?, updated_at = ?
-         WHERE id = ?`,
-      )
-      .run(
-        inspection.name,
-        inspection.remoteUrl,
-        inspection.provider,
-        updatedAt,
-        repository.id,
-      );
-
+    await this.database
+      .connection('repositories')
+      .where({ id: repository.id })
+      .update({
+        name: inspection.name,
+        remote_url: inspection.remoteUrl,
+        provider: inspection.provider,
+        updated_at: updatedAt,
+      });
     return updatedAt;
   }
 }

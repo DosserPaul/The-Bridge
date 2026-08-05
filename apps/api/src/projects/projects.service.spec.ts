@@ -46,6 +46,7 @@ describe('ProjectsService', () => {
 
   beforeEach(async () => {
     database = new DatabaseService(':memory:');
+    await database.initialize();
     remoteRepositories = {
       getWithCredentials: jest.fn(),
       createWithCredentials: jest.fn(),
@@ -60,7 +61,7 @@ describe('ProjectsService', () => {
   });
 
   afterEach(async () => {
-    database.onModuleDestroy();
+    await database.onModuleDestroy();
     await rm(repositoryPath, { recursive: true, force: true });
   });
 
@@ -121,12 +122,12 @@ describe('ProjectsService', () => {
   it('attaches a project to an existing client', async () => {
     const clientId = randomUUID();
     const now = new Date().toISOString();
-    database.connection
-      .prepare(
-        `INSERT INTO clients (id, name, created_at, updated_at)
-         VALUES (?, ?, ?, ?)`,
-      )
-      .run(clientId, 'Defim', now, now);
+    await database.connection('clients').insert({
+      id: clientId,
+      name: 'Defim',
+      created_at: now,
+      updated_at: now,
+    });
 
     const project = await projects.create({
       name: 'Application mobile',
@@ -193,15 +194,15 @@ describe('ProjectsService', () => {
       remoteUrl: 'git@github.com:DosserPaul/The-Bridge.git',
       provider: 'github',
     });
-    expect(
-      database.connection
-        .prepare(
-          `SELECT remote_url AS remoteUrl, provider
-           FROM repositories
-           WHERE id = ?`,
-        )
-        .get(project.repositories[0].id),
-    ).toEqual({
+    const storedRepository = (await database
+      .connection('repositories')
+      .select({ remoteUrl: 'remote_url' }, 'provider')
+      .where({ id: project.repositories[0].id })
+      .first()) as unknown as {
+      remoteUrl: string | null;
+      provider: string;
+    };
+    expect(storedRepository).toEqual({
       remoteUrl: 'git@github.com:DosserPaul/The-Bridge.git',
       provider: 'github',
     });
@@ -235,11 +236,25 @@ describe('ProjectsService', () => {
 
   it('creates a remote repository and clones it before persisting the project', async () => {
     const clonedPath = join(tmpdir(), `the-bridge-clone-${randomUUID()}`);
+    const connectionId = randomUUID();
+    const now = new Date().toISOString();
+    await database.connection('provider_connections').insert({
+      id: connectionId,
+      provider: 'github',
+      base_url: 'https://github.com',
+      credential_account: `github:${connectionId}`,
+      account_id: '84',
+      account_username: 'pauldosser',
+      account_name: 'Paul Dosser',
+      account_avatar_url: null,
+      created_at: now,
+      updated_at: now,
+    });
     remoteRepositories.createWithCredentials.mockResolvedValue({
       repository: {
         id: '84',
         provider: 'github',
-        connectionId: randomUUID(),
+        connectionId,
         name: 'mission-control',
         fullName: 'pauldosser/mission-control',
         description: null,
@@ -272,7 +287,6 @@ describe('ProjectsService', () => {
         },
       });
 
-    const connectionId = randomUUID();
     const project = await projects.create({
       name: 'Mission Control',
       repositoryPath: clonedPath,

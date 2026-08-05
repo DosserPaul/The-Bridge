@@ -121,15 +121,15 @@ export class IntegrationsService {
     return this.disconnect('github', connectionId);
   }
 
-  findAllGitLabRecords(): GitLabConnectionRecord[] {
-    return this.findAllRecords('gitlab').filter(
+  async findAllGitLabRecords(): Promise<GitLabConnectionRecord[]> {
+    return (await this.findAllRecords('gitlab')).filter(
       (record): record is GitLabConnectionRecord =>
         record.provider === 'gitlab',
     );
   }
 
-  findAllGitHubRecords(): GitHubConnectionRecord[] {
-    return this.findAllRecords('github').filter(
+  async findAllGitHubRecords(): Promise<GitHubConnectionRecord[]> {
+    return (await this.findAllRecords('github')).filter(
       (record): record is GitHubConnectionRecord =>
         record.provider === 'github',
     );
@@ -139,11 +139,11 @@ export class IntegrationsService {
     return this.credentials.read(record.credentialAccount);
   }
 
-  getConnectionRecord(
+  async getConnectionRecord(
     provider: Provider,
     connectionId: string,
-  ): ProviderConnectionRecord {
-    const record = this.findRecordById(provider, connectionId);
+  ): Promise<ProviderConnectionRecord> {
+    const record = await this.findRecordById(provider, connectionId);
     if (!record) {
       throw new NotFoundException(`Connexion ${provider} introuvable.`);
     }
@@ -156,7 +156,7 @@ export class IntegrationsService {
     token: string,
     account: ProviderAccount,
   ): Promise<ProviderConnectionRecord> {
-    const existing = this.findRecordByBaseUrl(provider, baseUrl);
+    const existing = await this.findRecordByBaseUrl(provider, baseUrl);
     const connectionId = existing?.id ?? randomUUID();
     const credentialAccount =
       existing?.credentialAccount ?? `${provider}:${connectionId}`;
@@ -166,49 +166,36 @@ export class IntegrationsService {
 
     try {
       if (existing) {
-        this.database.connection
-          .prepare(
-            `UPDATE provider_connections
-             SET account_id = ?, account_username = ?, account_name = ?,
-                 account_avatar_url = ?, updated_at = ?
-             WHERE id = ?`,
-          )
-          .run(
-            account.id,
-            account.username,
-            account.name,
-            account.avatarUrl,
-            now,
-            connectionId,
-          );
+        await this.database
+          .connection('provider_connections')
+          .where({ id: connectionId })
+          .update({
+            account_id: account.id,
+            account_username: account.username,
+            account_name: account.name,
+            account_avatar_url: account.avatarUrl,
+            updated_at: now,
+          });
       } else {
-        this.database.connection
-          .prepare(
-            `INSERT INTO provider_connections (
-               id, provider, base_url, credential_account, account_id,
-               account_username, account_name, account_avatar_url,
-               created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .run(
-            connectionId,
-            provider,
-            baseUrl,
-            credentialAccount,
-            account.id,
-            account.username,
-            account.name,
-            account.avatarUrl,
-            now,
-            now,
-          );
+        await this.database.connection('provider_connections').insert({
+          id: connectionId,
+          provider,
+          base_url: baseUrl,
+          credential_account: credentialAccount,
+          account_id: account.id,
+          account_username: account.username,
+          account_name: account.name,
+          account_avatar_url: account.avatarUrl,
+          created_at: now,
+          updated_at: now,
+        });
       }
     } catch (error) {
       if (!existing) await this.credentials.remove(credentialAccount);
       throw error;
     }
 
-    const record = this.findRecordById(provider, connectionId);
+    const record = await this.findRecordById(provider, connectionId);
     if (!record) {
       throw new NotFoundException(`Connexion ${provider} introuvable.`);
     }
@@ -218,7 +205,7 @@ export class IntegrationsService {
   private async listConnections(
     provider: Provider,
   ): Promise<ProviderConnectionView[]> {
-    const records = this.findAllRecords(provider);
+    const records = await this.findAllRecords(provider);
     return Promise.all(
       records.map(async (record) =>
         this.toView(
@@ -233,65 +220,52 @@ export class IntegrationsService {
     provider: Provider,
     connectionId: string,
   ): Promise<void> {
-    const record = this.findRecordById(provider, connectionId);
+    const record = await this.findRecordById(provider, connectionId);
     if (!record) {
       throw new NotFoundException(`Connexion ${provider} introuvable.`);
     }
 
     await this.credentials.remove(record.credentialAccount);
-    this.database.connection
-      .prepare('DELETE FROM provider_connections WHERE id = ?')
-      .run(connectionId);
+    await this.database
+      .connection('provider_connections')
+      .where({ id: connectionId })
+      .delete();
   }
 
-  private findAllRecords(provider: Provider): ProviderConnectionRecord[] {
-    const rows = this.database.connection
-      .prepare(
-        `SELECT
-           id, provider, base_url, credential_account, account_id,
-           account_username, account_name, account_avatar_url,
-           created_at, updated_at
-         FROM provider_connections
-         WHERE provider = ?
-         ORDER BY created_at ASC`,
-      )
-      .all(provider) as ProviderConnectionRow[];
+  private async findAllRecords(
+    provider: Provider,
+  ): Promise<ProviderConnectionRecord[]> {
+    const rows = await this.database
+      .connection<ProviderConnectionRow>('provider_connections')
+      .select('*')
+      .where({ provider })
+      .orderBy('created_at', 'asc');
 
     return rows.map((row) => this.toRecord(row));
   }
 
-  private findRecordByBaseUrl(
+  private async findRecordByBaseUrl(
     provider: Provider,
     baseUrl: string,
-  ): ProviderConnectionRecord | undefined {
-    const row = this.database.connection
-      .prepare(
-        `SELECT
-           id, provider, base_url, credential_account, account_id,
-           account_username, account_name, account_avatar_url,
-           created_at, updated_at
-         FROM provider_connections
-         WHERE provider = ? AND base_url = ?`,
-      )
-      .get(provider, baseUrl) as ProviderConnectionRow | undefined;
+  ): Promise<ProviderConnectionRecord | undefined> {
+    const row = await this.database
+      .connection<ProviderConnectionRow>('provider_connections')
+      .select('*')
+      .where({ provider, base_url: baseUrl })
+      .first();
 
     return row ? this.toRecord(row) : undefined;
   }
 
-  private findRecordById(
+  private async findRecordById(
     provider: Provider,
     connectionId: string,
-  ): ProviderConnectionRecord | undefined {
-    const row = this.database.connection
-      .prepare(
-        `SELECT
-           id, provider, base_url, credential_account, account_id,
-           account_username, account_name, account_avatar_url,
-           created_at, updated_at
-         FROM provider_connections
-         WHERE provider = ? AND id = ?`,
-      )
-      .get(provider, connectionId) as ProviderConnectionRow | undefined;
+  ): Promise<ProviderConnectionRecord | undefined> {
+    const row = await this.database
+      .connection<ProviderConnectionRow>('provider_connections')
+      .select('*')
+      .where({ provider, id: connectionId })
+      .first();
 
     return row ? this.toRecord(row) : undefined;
   }

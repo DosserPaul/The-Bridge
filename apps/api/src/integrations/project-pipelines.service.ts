@@ -88,22 +88,23 @@ export class ProjectPipelinesService {
   ) {}
 
   async findForProject(projectId: string): Promise<ProjectPipelinesView> {
-    const project = this.database.connection
-      .prepare('SELECT id FROM projects WHERE id = ?')
-      .get(projectId) as { id: string } | undefined;
+    const project = await this.database
+      .connection<{ id: string }>('projects')
+      .select('id')
+      .where({ id: projectId })
+      .first();
 
     if (!project) throw new NotFoundException('Projet introuvable.');
 
-    const repositories = this.database.connection
-      .prepare(
-        `SELECT id, name, remote_url, provider
-         FROM repositories
-         WHERE project_id = ?
-         ORDER BY created_at ASC`,
-      )
-      .all(projectId) as RepositoryRow[];
-    const gitLabConnections = this.integrations.findAllGitLabRecords();
-    const gitHubConnections = this.integrations.findAllGitHubRecords();
+    const repositories = await this.database
+      .connection<RepositoryRow>('repositories')
+      .select('id', 'name', 'remote_url', 'provider')
+      .where('project_id', projectId)
+      .orderBy('created_at', 'asc');
+    const [gitLabConnections, gitHubConnections] = await Promise.all([
+      this.integrations.findAllGitLabRecords(),
+      this.integrations.findAllGitHubRecords(),
+    ]);
 
     return {
       projectId,

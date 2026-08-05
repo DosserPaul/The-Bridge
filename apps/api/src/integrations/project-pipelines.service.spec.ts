@@ -35,40 +35,34 @@ describe('ProjectPipelinesService', () => {
   const projectId = randomUUID();
   const repositoryId = randomUUID();
 
-  beforeEach(() => {
+  beforeEach(async () => {
     database = new DatabaseService(':memory:');
+    await database.initialize();
     const now = new Date().toISOString();
-    database.connection
-      .prepare(
-        `INSERT INTO projects (id, name, created_at, updated_at)
-         VALUES (?, ?, ?, ?)`,
-      )
-      .run(projectId, 'JurisLive', now, now);
-    database.connection
-      .prepare(
-        `INSERT INTO repositories (
-           id, project_id, name, local_path, remote_url, provider,
-           created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        repositoryId,
-        projectId,
-        'api',
-        '/tmp/jurislive-api',
-        'git@gitlab.com:juris/api.git',
-        'gitlab',
-        now,
-        now,
-      );
+    await database.connection('projects').insert({
+      id: projectId,
+      name: 'JurisLive',
+      created_at: now,
+      updated_at: now,
+    });
+    await database.connection('repositories').insert({
+      id: repositoryId,
+      project_id: projectId,
+      name: 'api',
+      local_path: '/tmp/jurislive-api',
+      remote_url: 'git@gitlab.com:juris/api.git',
+      provider: 'gitlab',
+      created_at: now,
+      updated_at: now,
+    });
   });
 
-  afterEach(() => database.onModuleDestroy());
+  afterEach(async () => database.onModuleDestroy());
 
   it('asks for a connection when a GitLab remote has no matching account', async () => {
     const integrations = {
-      findAllGitLabRecords: jest.fn().mockReturnValue([]),
-      findAllGitHubRecords: jest.fn().mockReturnValue([]),
+      findAllGitLabRecords: jest.fn().mockResolvedValue([]),
+      findAllGitHubRecords: jest.fn().mockResolvedValue([]),
     };
     const service = new ProjectPipelinesService(
       database,
@@ -103,8 +97,8 @@ describe('ProjectPipelinesService', () => {
       updatedAt: new Date().toISOString(),
     };
     const integrations = {
-      findAllGitLabRecords: jest.fn().mockReturnValue([connection]),
-      findAllGitHubRecords: jest.fn().mockReturnValue([]),
+      findAllGitLabRecords: jest.fn().mockResolvedValue([connection]),
+      findAllGitHubRecords: jest.fn().mockResolvedValue([]),
       readToken: jest.fn().mockResolvedValue('glpat-secret'),
     };
     const gitlab = {
@@ -143,13 +137,13 @@ describe('ProjectPipelinesService', () => {
   });
 
   it('loads GitHub Actions for a GitHub repository', async () => {
-    database.connection
-      .prepare(
-        `UPDATE repositories
-         SET remote_url = ?, provider = ?
-         WHERE id = ?`,
-      )
-      .run('git@github.com:DosserPaul/The-Bridge.git', 'github', repositoryId);
+    await database
+      .connection('repositories')
+      .where({ id: repositoryId })
+      .update({
+        remote_url: 'git@github.com:DosserPaul/The-Bridge.git',
+        provider: 'github',
+      });
     const connection: GitHubConnectionRecord = {
       id: randomUUID(),
       provider: 'github',
@@ -163,8 +157,8 @@ describe('ProjectPipelinesService', () => {
       updatedAt: new Date().toISOString(),
     };
     const integrations = {
-      findAllGitLabRecords: jest.fn().mockReturnValue([]),
-      findAllGitHubRecords: jest.fn().mockReturnValue([connection]),
+      findAllGitLabRecords: jest.fn().mockResolvedValue([]),
+      findAllGitHubRecords: jest.fn().mockResolvedValue([connection]),
       readToken: jest.fn().mockResolvedValue('github-pat-secret'),
     };
     const github = {
