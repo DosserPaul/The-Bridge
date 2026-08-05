@@ -167,6 +167,46 @@ describe('ProjectsService', () => {
     });
   });
 
+  it('refreshes repository metadata when origin is added after project creation', async () => {
+    const project = await projects.create({
+      name: 'The Bridge',
+      repositoryPath,
+    });
+
+    expect(project.repositories[0]).toMatchObject({
+      remoteUrl: null,
+      provider: 'unknown',
+    });
+
+    execFileSync('git', [
+      '-C',
+      repositoryPath,
+      'remote',
+      'add',
+      'origin',
+      'git@github.com:DosserPaul/The-Bridge.git',
+    ]);
+
+    const refreshedProject = await projects.findOne(project.id);
+
+    expect(refreshedProject.repositories[0]).toMatchObject({
+      remoteUrl: 'git@github.com:DosserPaul/The-Bridge.git',
+      provider: 'github',
+    });
+    expect(
+      database.connection
+        .prepare(
+          `SELECT remote_url AS remoteUrl, provider
+           FROM repositories
+           WHERE id = ?`,
+        )
+        .get(project.repositories[0].id),
+    ).toEqual({
+      remoteUrl: 'git@github.com:DosserPaul/The-Bridge.git',
+      provider: 'github',
+    });
+  });
+
   it('validates a clone destination inside a new subfolder', async () => {
     await expect(
       projects.validateRepositoryPath({

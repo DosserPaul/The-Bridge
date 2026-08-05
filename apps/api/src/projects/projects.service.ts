@@ -444,18 +444,65 @@ export class ProjectsService {
     repository: RepositoryRow,
     freshInspection?: RepositoryInspection,
   ): Promise<RepositoryView> {
+    const inspection =
+      freshInspection?.canonicalPath === repository.local_path
+        ? freshInspection
+        : await this.inspectStoredRepository(repository.local_path);
+    const updatedAt = inspection
+      ? this.syncRepositoryMetadata(repository, inspection)
+      : repository.updated_at;
+
     return {
       id: repository.id,
-      name: repository.name,
+      name: inspection?.name ?? repository.name,
       localPath: repository.local_path,
-      remoteUrl: repository.remote_url,
-      provider: repository.provider,
+      remoteUrl: inspection ? inspection.remoteUrl : repository.remote_url,
+      provider: inspection?.provider ?? repository.provider,
       state:
-        freshInspection?.canonicalPath === repository.local_path
-          ? freshInspection.state
-          : await this.git.observeRepository(repository.local_path),
+        inspection?.state ??
+        (await this.git.observeRepository(repository.local_path)),
       createdAt: repository.created_at,
-      updatedAt: repository.updated_at,
+      updatedAt,
     };
+  }
+
+  private async inspectStoredRepository(
+    repositoryPath: string,
+  ): Promise<RepositoryInspection | undefined> {
+    try {
+      return await this.git.inspectRepository(repositoryPath);
+    } catch {
+      return undefined;
+    }
+  }
+
+  private syncRepositoryMetadata(
+    repository: RepositoryRow,
+    inspection: RepositoryInspection,
+  ): string {
+    if (
+      repository.name === inspection.name &&
+      repository.remote_url === inspection.remoteUrl &&
+      repository.provider === inspection.provider
+    ) {
+      return repository.updated_at;
+    }
+
+    const updatedAt = new Date().toISOString();
+    this.database.connection
+      .prepare(
+        `UPDATE repositories
+         SET name = ?, remote_url = ?, provider = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(
+        inspection.name,
+        inspection.remoteUrl,
+        inspection.provider,
+        updatedAt,
+        repository.id,
+      );
+
+    return updatedAt;
   }
 }
