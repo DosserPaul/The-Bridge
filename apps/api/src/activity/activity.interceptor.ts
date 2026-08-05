@@ -50,6 +50,7 @@ function responseLabel(value: unknown): string | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   if (typeof record.name === 'string') return record.name;
+  if (typeof record.title === 'string') return record.title;
   if (
     record.account &&
     typeof record.account === 'object' &&

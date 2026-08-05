@@ -38,7 +38,34 @@ const actionLabels: Record<string, string> = {
   'project.archived': 'Projet archivé',
   'project.listed': 'Liste des projets consultée',
   'project.viewed': 'Projet consulté',
-  'project.pipelines.viewed': 'Pipelines du projet consultés',
+  'project.issue.viewed': 'Détail d’une issue consulté',
+  'project.issues.viewed': 'Issues du projet consultées',
+  'project.pull_requests.viewed': 'Pull requests du projet consultées',
+  'project.pull_request.viewed': 'Détail d’une pull request consulté',
+  'project.environments.viewed': 'Environnements du projet consultés',
+  'project.pipelines.viewed': 'CI / CD du projet consultée',
+  'project.milestones.viewed': 'Roadmap du projet consultée',
+  'project.milestone.created': 'Jalon créé',
+  'project.milestone.updated': 'Jalon modifié',
+  'project.milestone.deleted': 'Jalon supprimé',
+  'project.decisions.viewed': 'Décisions du projet consultées',
+  'project.decision.created': 'Décision créée',
+  'project.decision.updated': 'Décision modifiée',
+  'project.decision.deleted': 'Décision supprimée',
+  'project.documents.viewed': 'Documents du projet consultés',
+  'project.document.previewed': 'Document prévisualisé',
+  'project.document.created': 'Document ajouté',
+  'project.document.updated': 'Document modifié',
+  'project.document.deleted': 'Document retiré',
+  'project.commercial.viewed': 'Temps et budget consultés',
+  'project.finance.updated': 'Paramètres financiers modifiés',
+  'project.time.created': 'Saisie de temps ajoutée',
+  'project.time.updated': 'Saisie de temps modifiée',
+  'project.time.deleted': 'Saisie de temps supprimée',
+  'project.local_actions.viewed': 'Actions locales consultées',
+  'project.local_action.launched': 'Action locale lancée',
+  'project.local_action.stopped': 'Action locale arrêtée',
+  'project.health.viewed': 'Santé technique consultée',
   'repository.added': 'Repository ajouté au projet',
   'repository.removed': 'Repository retiré du projet',
   'repository.connection_updated': 'Connexion du repository modifiée',
@@ -378,6 +405,13 @@ export class ActivityService {
   }
 
   private toListItem(row: ActivityRow): ActivityListItem {
+    const summary =
+      row.action === 'project.pipelines.viewed'
+        ? row.summary.replace(
+            /^Pipelines du projet consultés/,
+            'CI / CD du projet consultée',
+          )
+        : row.summary;
     return {
       id: row.id,
       requestId: row.request_id,
@@ -389,7 +423,7 @@ export class ActivityService {
       subject: row.subject_type
         ? { type: row.subject_type, id: row.subject_id }
         : null,
-      summary: row.summary,
+      summary,
       httpStatus: row.http_status,
       durationMs: row.duration_ms,
       createdAt: row.created_at,

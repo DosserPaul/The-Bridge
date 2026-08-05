@@ -9,12 +9,29 @@ async function expectSchema(database: DatabaseService): Promise<void> {
     'repositories',
     'connection_id',
   );
+  const hasMilestones =
+    await database.connection.schema.hasTable('project_milestones');
+  const hasDecisions =
+    await database.connection.schema.hasTable('project_decisions');
+  const workspaceTables = await Promise.all(
+    [
+      'project_documents',
+      'project_finances',
+      'project_time_entries',
+      'local_action_runs',
+    ].map((table) => database.connection.schema.hasTable(table)),
+  );
 
   expect(migrations).toEqual([
     { name: '001-initial-schema' },
     { name: '002-repository-connection' },
+    { name: '003-project-planning' },
+    { name: '004-project-workspace' },
   ]);
   expect(hasConnectionId).toBe(true);
+  expect(hasMilestones).toBe(true);
+  expect(hasDecisions).toBe(true);
+  expect(workspaceTables).toEqual([true, true, true, true]);
 }
 
 describe('DatabaseService', () => {

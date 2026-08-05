@@ -32,13 +32,25 @@ const databaseTables: Record<BackupTable, string> = {
   providerConnections: 'provider_connections',
   projects: 'projects',
   repositories: 'repositories',
+  projectMilestones: 'project_milestones',
+  projectDecisions: 'project_decisions',
+  projectDocuments: 'project_documents',
+  projectFinances: 'project_finances',
+  projectTimeEntries: 'project_time_entries',
+  localActionRuns: 'local_action_runs',
   clientContacts: 'client_contacts',
   activityLogs: 'activity_logs',
 };
 
 const deletionOrder: BackupTable[] = [
   'activityLogs',
+  'localActionRuns',
+  'projectTimeEntries',
+  'projectFinances',
+  'projectDocuments',
   'clientContacts',
+  'projectDecisions',
+  'projectMilestones',
   'repositories',
   'projects',
   'providerConnections',
@@ -50,6 +62,12 @@ const insertionOrder: BackupTable[] = [
   'providerConnections',
   'projects',
   'repositories',
+  'projectMilestones',
+  'projectDecisions',
+  'projectDocuments',
+  'projectFinances',
+  'projectTimeEntries',
+  'localActionRuns',
   'clientContacts',
   'activityLogs',
 ];
@@ -225,7 +243,7 @@ export class DataService {
     }
     if (
       input.format !== DATA_BACKUP_FORMAT ||
-      input.version !== DATA_BACKUP_VERSION ||
+      ![1, 2, DATA_BACKUP_VERSION].includes(Number(input.version)) ||
       typeof input.createdAt !== 'string' ||
       !isRecord(input.source) ||
       (input.source.dialect !== 'sqlite' &&
@@ -237,14 +255,27 @@ export class DataService {
       );
     }
 
+    const normalizedData: Record<string, unknown> = {
+      ...input.data,
+      projectMilestones: input.data.projectMilestones ?? [],
+      projectDecisions: input.data.projectDecisions ?? [],
+      projectDocuments: input.data.projectDocuments ?? [],
+      projectFinances: input.data.projectFinances ?? [],
+      projectTimeEntries: input.data.projectTimeEntries ?? [],
+      localActionRuns: input.data.localActionRuns ?? [],
+    };
     for (const table of backupTables) {
-      const rows = input.data[table];
+      const rows = normalizedData[table];
       if (!Array.isArray(rows) || !rows.every(isRecord)) {
         throw new BadRequestException(
           `La table de sauvegarde « ${table} » est invalide.`,
         );
       }
     }
-    return input as unknown as DataBackupDocument;
+    return {
+      ...input,
+      version: DATA_BACKUP_VERSION,
+      data: normalizedData,
+    } as unknown as DataBackupDocument;
   }
 }

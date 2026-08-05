@@ -26,11 +26,63 @@ describe('DataService', () => {
 
   it('exports every application table without credential secrets', async () => {
     const now = new Date().toISOString();
+    const projectId = randomUUID();
     await database.connection('clients').insert({
       id: randomUUID(),
       name: 'Juris Global',
       kind: 'organization',
       status: 'active',
+      created_at: now,
+      updated_at: now,
+    });
+    await database.connection('projects').insert({
+      id: projectId,
+      name: 'The Bridge',
+      created_at: now,
+      updated_at: now,
+    });
+    await database.connection('project_milestones').insert({
+      id: randomUUID(),
+      project_id: projectId,
+      title: 'Public beta',
+      linked_issues_json: '[]',
+      created_at: now,
+      updated_at: now,
+    });
+    await database.connection('project_decisions').insert({
+      id: randomUUID(),
+      project_id: projectId,
+      title: 'Stay local-first',
+      context: 'Credentials are local.',
+      decision: 'Keep the API local.',
+      decided_at: '2026-08-05',
+      created_at: now,
+      updated_at: now,
+    });
+    await database.connection('project_documents').insert({
+      id: randomUUID(),
+      project_id: projectId,
+      kind: 'link',
+      category: 'specification',
+      title: 'Product specification',
+      location: 'https://example.com/specification',
+      created_at: now,
+      updated_at: now,
+    });
+    await database.connection('project_finances').insert({
+      project_id: projectId,
+      daily_rate_cents: 80_000,
+      budget_cents: 800_000,
+      currency: 'EUR',
+      updated_at: now,
+    });
+    await database.connection('project_time_entries').insert({
+      id: randomUUID(),
+      project_id: projectId,
+      date: '2026-08-06',
+      duration_minutes: 120,
+      description: 'Workspace implementation',
+      billable: true,
       created_at: now,
       updated_at: now,
     });
@@ -44,7 +96,36 @@ describe('DataService', () => {
     });
     expect(document.data.clients).toHaveLength(1);
     expect(document.data.providerConnections).toEqual([]);
+    expect(document.data.projectMilestones).toHaveLength(1);
+    expect(document.data.projectDecisions).toHaveLength(1);
+    expect(document.data.projectDocuments).toHaveLength(1);
+    expect(document.data.projectFinances).toHaveLength(1);
+    expect(document.data.projectTimeEntries).toHaveLength(1);
     expect(JSON.stringify(document)).not.toContain('accessToken');
+  });
+
+  it('restores version 1 backups with empty planning tables', async () => {
+    const document = await service.exportDocument();
+    const legacy = JSON.parse(JSON.stringify(document)) as {
+      version: number;
+      data: Record<string, unknown>;
+    };
+    legacy.version = 1;
+    delete legacy.data.projectMilestones;
+    delete legacy.data.projectDecisions;
+    delete legacy.data.projectDocuments;
+    delete legacy.data.projectFinances;
+    delete legacy.data.projectTimeEntries;
+    delete legacy.data.localActionRuns;
+
+    const result = await service.restoreDocument(legacy);
+
+    expect(result.counts.projectMilestones).toBe(0);
+    expect(result.counts.projectDecisions).toBe(0);
+    expect(result.counts.projectDocuments).toBe(0);
+    expect(result.counts.projectFinances).toBe(0);
+    expect(result.counts.projectTimeEntries).toBe(0);
+    expect(result.counts.localActionRuns).toBe(0);
   });
 
   it('creates a local backup and restores data transactionally', async () => {
