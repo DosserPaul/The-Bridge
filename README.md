@@ -26,6 +26,9 @@ credentials into a hosted service.
 
 - Manage organizations, individuals, contacts, and client branding.
 - Create personal or client projects with status, priority, dates, and tags.
+- Edit and archive projects without deleting their history.
+- Attach multiple repositories and remove associations without deleting code.
+- Bind each repository to an explicit GitHub or GitLab connection.
 - Attach an existing local Git repository.
 - Clone an existing GitHub or GitLab repository.
 - Create a remote repository and clone it locally.
@@ -34,6 +37,7 @@ credentials into a hosted service.
 - Connect GitHub, GitLab.com, or a self-hosted GitLab instance.
 - Display recent GitHub Actions and GitLab pipelines through a shared CI/CD view.
 - Record application actions in a categorized, searchable activity log.
+- Create local backups, download portable exports, and restore data safely.
 - Store provider credentials in the operating-system credential store.
 
 ## Architecture
@@ -41,7 +45,7 @@ credentials into a hosted service.
 ```text
 apps/
 ├── web/    Next.js 16, React 19, Tailwind CSS 4, shadcn/ui
-└── api/    NestJS 11, SQLite, Git and provider integrations
+└── api/    NestJS 11, SQLite/PostgreSQL, Git and provider integrations
 ```
 
 The web application runs on `http://127.0.0.1:3100`. The API runs on
@@ -54,6 +58,7 @@ default because the API can inspect local repositories.
 - pnpm 11.10 or newer
 - Git
 - An operating-system credential store supported by `@napi-rs/keyring`
+- Docker (optional, only when using PostgreSQL locally)
 
 ## Getting started
 
@@ -84,6 +89,8 @@ credential-store data.
 | `pnpm dev`                               | Run the web application and API in watch mode |
 | `pnpm dev:web`                           | Run only Next.js                              |
 | `pnpm dev:api`                           | Run only NestJS                               |
+| `pnpm db:postgres:start`                 | Start the optional PostgreSQL container       |
+| `pnpm db:postgres:stop`                  | Stop the optional PostgreSQL container        |
 | `pnpm lint`                              | Lint all workspaces                           |
 | `pnpm typecheck`                         | Type-check all workspaces                     |
 | `pnpm test`                              | Run API unit tests                            |
@@ -105,11 +112,37 @@ Open **Settings → Integrations** to connect a provider.
 Public account metadata and credential references are stored in SQLite. Secret
 values remain in the operating-system credential store.
 
-## Local data
+## Database and local data
 
-Runtime data is stored under `.data/` and is ignored by Git. The current default
-database path is `.data/claudehub.sqlite`; it can be overridden with
-`CLAUDEHUB_DATABASE_PATH`.
+SQLite is the default and requires no external service. Runtime data is stored
+under `.data/`, which is ignored by Git. The default database path is
+`.data/claudehub.sqlite`; it can be overridden with
+`CLAUDEHUB_DATABASE_PATH`. Versioned migrations run automatically at API
+startup and preserve existing data.
+
+PostgreSQL is optional. Start the provided PostgreSQL 18 container and enable
+it through the API environment file:
+
+```bash
+pnpm db:postgres:start
+cp apps/api/.env.example apps/api/.env
+```
+
+Then uncomment `DATABASE_URL` in `apps/api/.env`. Stop the container with
+`pnpm db:postgres:stop`. Switching database engines does not implicitly copy
+data; use **Settings → Data** to export from one engine and restore into the
+other.
+
+The Data settings page can:
+
+- create private JSON snapshots under `.data/backups/`;
+- download a portable JSON export;
+- restore either form transactionally;
+- create a safety snapshot automatically before every restore.
+
+Provider tokens are never included. They remain in the operating-system
+credential store, so restored connections may require their token to be added
+again on another machine.
 
 The legacy `claudehub` storage identifiers are intentionally retained for local
 data and credential compatibility while the product branding is migrated to
@@ -124,6 +157,11 @@ The local API currently exposes the following resource groups:
 - `/api/projects`
 - `/api/projects/validate-repository-path`
 - `/api/projects/:projectId/pipelines`
+- `/api/projects/:projectId/repositories`
+- `/api/data/status`
+- `/api/data/backups`
+- `/api/data/export`
+- `/api/data/restore`
 - `/api/activity`
 - `/api/integrations/github`
 - `/api/integrations/gitlab`
@@ -186,6 +224,4 @@ contact the maintainer directly through GitHub.
 
 ## License
 
-An open-source license has not been selected yet. A `LICENSE` file will be added
-before the first public release. Until then, no permission is granted to use,
-copy, modify, or distribute the source code.
+THE BRIDGE is available under the [MIT License](LICENSE).
