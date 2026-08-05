@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { DatabaseService } from '../database/database.service';
+import { GitService } from '../projects/git.service';
+import { parseGitRemote } from '../repositories/git-remote';
+import { RepositoryCatalogService } from '../repositories/repository-catalog.service';
 import { GitHubClientService } from './github-client.service';
 import { GitLabClientService } from './gitlab-client.service';
 import {
@@ -7,10 +10,7 @@ import {
   type GitHubConnectionRecord,
   type GitLabConnectionRecord,
 } from './integrations.service';
-import {
-  parseGitRemote,
-  ProjectPipelinesService,
-} from './project-pipelines.service';
+import { ProjectPipelinesService } from './project-pipelines.service';
 
 describe('parseGitRemote', () => {
   it.each([
@@ -32,12 +32,17 @@ describe('parseGitRemote', () => {
 
 describe('ProjectPipelinesService', () => {
   let database: DatabaseService;
+  let repositoryCatalog: RepositoryCatalogService;
   const projectId = randomUUID();
   const repositoryId = randomUUID();
 
   beforeEach(async () => {
     database = new DatabaseService(':memory:');
     await database.initialize();
+    repositoryCatalog = new RepositoryCatalogService(
+      database,
+      new GitService(),
+    );
     const now = new Date().toISOString();
     await database.connection('projects').insert({
       id: projectId,
@@ -66,6 +71,7 @@ describe('ProjectPipelinesService', () => {
     };
     const service = new ProjectPipelinesService(
       database,
+      repositoryCatalog,
       integrations as unknown as IntegrationsService,
       {} as GitLabClientService,
       {} as GitHubClientService,
@@ -116,8 +122,21 @@ describe('ProjectPipelinesService', () => {
         },
       ]),
     };
+    await database.connection('provider_connections').insert({
+      id: connection.id,
+      provider: connection.provider,
+      base_url: connection.baseUrl,
+      credential_account: connection.credentialAccount,
+      account_id: connection.accountId,
+      account_username: connection.accountUsername,
+      account_name: connection.accountName,
+      account_avatar_url: connection.accountAvatarUrl,
+      created_at: connection.createdAt,
+      updated_at: connection.updatedAt,
+    });
     const service = new ProjectPipelinesService(
       database,
+      repositoryCatalog,
       integrations as unknown as IntegrationsService,
       gitlab as unknown as GitLabClientService,
       {} as GitHubClientService,
@@ -176,8 +195,21 @@ describe('ProjectPipelinesService', () => {
         },
       ]),
     };
+    await database.connection('provider_connections').insert({
+      id: connection.id,
+      provider: connection.provider,
+      base_url: connection.baseUrl,
+      credential_account: connection.credentialAccount,
+      account_id: connection.accountId,
+      account_username: connection.accountUsername,
+      account_name: connection.accountName,
+      account_avatar_url: connection.accountAvatarUrl,
+      created_at: connection.createdAt,
+      updated_at: connection.updatedAt,
+    });
     const service = new ProjectPipelinesService(
       database,
+      repositoryCatalog,
       integrations as unknown as IntegrationsService,
       {} as GitLabClientService,
       github as unknown as GitHubClientService,

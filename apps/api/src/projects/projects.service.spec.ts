@@ -6,6 +6,7 @@ import { BadRequestException, ConflictException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { DatabaseService } from '../database/database.service';
 import { RemoteRepositoriesService } from '../integrations/remote-repositories.service';
+import { RepositoryCatalogService } from '../repositories/repository-catalog.service';
 import { GitService } from './git.service';
 import { ProjectsService } from './projects.service';
 
@@ -43,6 +44,7 @@ describe('ProjectsService', () => {
     >
   >;
   let repositoryPath: string;
+  let additionalRepositoryPaths: string[];
 
   beforeEach(async () => {
     database = new DatabaseService(':memory:');
@@ -52,17 +54,25 @@ describe('ProjectsService', () => {
       createWithCredentials: jest.fn(),
     };
     git = new GitService();
+    const repositoryCatalog = new RepositoryCatalogService(database, git);
     projects = new ProjectsService(
       database,
       git,
       remoteRepositories as unknown as RemoteRepositoriesService,
+      repositoryCatalog,
     );
     repositoryPath = await createRepository();
+    additionalRepositoryPaths = [];
   });
 
   afterEach(async () => {
     await database.onModuleDestroy();
     await rm(repositoryPath, { recursive: true, force: true });
+    await Promise.all(
+      additionalRepositoryPaths.map((path) =>
+        rm(path, { recursive: true, force: true }),
+      ),
+    );
   });
 
   it('creates a client project with its initial repository', async () => {
@@ -117,6 +127,93 @@ describe('ProjectsService', () => {
     });
 
     expect(project.client).toBeNull();
+  });
+
+  it('updates and archives a project without changing its repositories', async () => {
+    const project = await projects.create({
+      name: 'The Bridge',
+      repositoryPath,
+    });
+
+    const updated = await projects.update(project.id, {
+      name: 'THE BRIDGE',
+      description: 'See everything. Direct anything.',
+      priority: 'high',
+      types: ['web', 'backend'],
+      deadline: '2026-12-31',
+    });
+    const archived = await projects.archive(project.id);
+
+    expect(updated).toMatchObject({
+      name: 'THE BRIDGE',
+      description: 'See everything. Direct anything.',
+      priority: 'high',
+      types: ['web', 'backend'],
+      deadline: '2026-12-31',
+      repositories: [{ id: project.repositories[0].id }],
+    });
+    expect(archived.status).toBe('archived');
+  });
+
+  it('adds and removes multiple local repositories', async () => {
+    const project = await projects.create({
+      name: 'The Bridge',
+      repositoryPath,
+    });
+    const secondRepositoryPath = await createRepository();
+    additionalRepositoryPaths.push(secondRepositoryPath);
+
+    const withSecondRepository = await projects.addRepository(project.id, {
+      repositoryPath: secondRepositoryPath,
+      repositoryMode: 'local',
+    });
+    const secondRepository = withSecondRepository.repositories.find(
+      (repository) => repository.localPath === secondRepositoryPath,
+    );
+
+    expect(withSecondRepository.repositories).toHaveLength(2);
+    expect(secondRepository).toBeDefined();
+    await projects.removeRepository(project.id, secondRepository!.id);
+    await expect(projects.findOne(project.id)).resolves.toMatchObject({
+      repositories: [{ id: project.repositories[0].id }],
+    });
+  });
+
+  it('stores an explicit provider connection on a repository', async () => {
+    execFileSync('git', [
+      '-C',
+      repositoryPath,
+      'remote',
+      'add',
+      'origin',
+      'git@github.com:DosserPaul/The-Bridge.git',
+    ]);
+    const connectionId = randomUUID();
+    const now = new Date().toISOString();
+    await database.connection('provider_connections').insert({
+      id: connectionId,
+      provider: 'github',
+      base_url: 'https://github.com',
+      credential_account: `github:${connectionId}`,
+      account_id: '84',
+      account_username: 'pauldosser',
+      account_name: 'Paul Dosser',
+      account_avatar_url: null,
+      created_at: now,
+      updated_at: now,
+    });
+
+    const project = await projects.create({
+      name: 'The Bridge',
+      repositoryPath,
+      provider: 'github',
+      connectionId,
+    });
+
+    expect(project.repositories[0]).toMatchObject({
+      connectionId,
+      provider: 'github',
+    });
   });
 
   it('attaches a project to an existing client', async () => {

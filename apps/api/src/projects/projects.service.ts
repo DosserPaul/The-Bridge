@@ -10,7 +10,10 @@ import type { Knex } from 'knex';
 import { isUniqueConstraintError } from '../database/database-error';
 import { DatabaseService } from '../database/database.service';
 import { RemoteRepositoriesService } from '../integrations/remote-repositories.service';
+import { RepositoryCatalogService } from '../repositories/repository-catalog.service';
 import type { CreateProjectDto } from './dto/create-project.dto';
+import type { CreateRepositoryDto } from './dto/create-repository.dto';
+import type { UpdateProjectDto } from './dto/update-project.dto';
 import type { ValidateRepositoryPathDto } from './dto/validate-repository-path.dto';
 import { GitService, type RepositoryInspection } from './git.service';
 import type {
@@ -38,22 +41,12 @@ interface ProjectRow {
   updated_at: string;
 }
 
-interface RepositoryRow {
-  id: string;
-  project_id: string;
-  connection_id: string | null;
-  name: string;
-  local_path: string;
-  remote_url: string | null;
-  provider: 'github' | 'gitlab' | 'unknown';
-  created_at: string;
-  updated_at: string;
-}
-
 interface ClientRow {
   id: string;
   name: string;
 }
+
+type RepositoryInput = CreateProjectDto | CreateRepositoryDto;
 
 @Injectable()
 export class ProjectsService {
@@ -61,12 +54,17 @@ export class ProjectsService {
     private readonly database: DatabaseService,
     private readonly git: GitService,
     private readonly remoteRepositories: RemoteRepositoriesService,
+    private readonly repositoryCatalog: RepositoryCatalogService,
   ) {}
 
   async create(input: CreateProjectDto): Promise<ProjectView> {
     this.validateDates(input);
     if (input.clientId) await this.requireClient(input.clientId);
     const inspection = await this.prepareRepository(input);
+    const association = await this.repositoryCatalog.validateConnection(
+      input.connectionId,
+      inspection,
+    );
     const now = new Date().toISOString();
     const projectId = randomUUID();
     const repositoryId = randomUUID();
@@ -100,11 +98,11 @@ export class ProjectsService {
         await transaction('repositories').insert({
           id: repositoryId,
           project_id: projectId,
-          connection_id: input.connectionId ?? null,
+          connection_id: association.connectionId,
           name: inspection.name,
           local_path: inspection.canonicalPath,
           remote_url: inspection.remoteUrl,
-          provider: inspection.provider,
+          provider: association.provider,
           created_at: now,
           updated_at: now,
         });
@@ -180,8 +178,131 @@ export class ProjectsService {
     return this.toProjectView(project, freshInspection);
   }
 
+  async update(
+    projectId: string,
+    input: UpdateProjectDto,
+  ): Promise<ProjectView> {
+    const project = await this.selectProject(projectId);
+    if (!project) throw new NotFoundException('Projet introuvable.');
+    if (typeof input.clientId === 'string') {
+      await this.requireClient(input.clientId);
+    }
+
+    const startDate =
+      input.startDate === undefined ? project.start_date : input.startDate;
+    const deadline =
+      input.deadline === undefined ? project.deadline : input.deadline;
+    const followUpDate =
+      input.followUpDate === undefined
+        ? project.follow_up_date
+        : input.followUpDate;
+    const followUpNote =
+      input.followUpNote === undefined
+        ? project.follow_up_note
+        : input.followUpNote;
+    this.validateDateValues(startDate, deadline, followUpDate, followUpNote);
+
+    const patch: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
+    if (input.name !== undefined) patch.name = input.name;
+    if (input.logoDataUrl !== undefined)
+      patch.logo_data_url = input.logoDataUrl;
+    if (input.description !== undefined) patch.description = input.description;
+    if (input.status !== undefined) patch.status = input.status;
+    if (input.priority !== undefined) patch.priority = input.priority;
+    if (input.types !== undefined)
+      patch.types_json = JSON.stringify(input.types);
+    if (input.technologies !== undefined)
+      patch.technologies_json = JSON.stringify(input.technologies);
+    if (input.startDate !== undefined) patch.start_date = input.startDate;
+    if (input.deadline !== undefined) patch.deadline = input.deadline;
+    if (input.followUpDate !== undefined)
+      patch.follow_up_date = input.followUpDate;
+    if (input.followUpNote !== undefined)
+      patch.follow_up_note = input.followUpNote;
+    if (input.clientId !== undefined) patch.client_id = input.clientId;
+
+    await this.database
+      .connection('projects')
+      .where({ id: projectId })
+      .update(patch);
+    return this.findOne(projectId);
+  }
+
+  archive(projectId: string): Promise<ProjectView> {
+    return this.update(projectId, { status: 'archived' });
+  }
+
+  async addRepository(
+    projectId: string,
+    input: CreateRepositoryDto,
+  ): Promise<ProjectView> {
+    if (!(await this.selectProject(projectId))) {
+      throw new NotFoundException('Projet introuvable.');
+    }
+    const inspection = await this.prepareRepository(input);
+    const association = await this.repositoryCatalog.validateConnection(
+      input.connectionId,
+      inspection,
+    );
+    const now = new Date().toISOString();
+    try {
+      await this.database.connection('repositories').insert({
+        id: randomUUID(),
+        project_id: projectId,
+        connection_id: association.connectionId,
+        name: inspection.name,
+        local_path: inspection.canonicalPath,
+        remote_url: inspection.remoteUrl,
+        provider: association.provider,
+        created_at: now,
+        updated_at: now,
+      });
+      await this.database
+        .connection('projects')
+        .where({ id: projectId })
+        .update({ updated_at: now });
+    } catch (error) {
+      if (isUniqueConstraintError(error, 'repositories.local_path')) {
+        throw new ConflictException(
+          'Ce repository est déjà rattaché à un projet.',
+        );
+      }
+      throw error;
+    }
+    return this.findOne(projectId, inspection);
+  }
+
+  async removeRepository(
+    projectId: string,
+    repositoryId: string,
+  ): Promise<void> {
+    await this.repositoryCatalog.getRecord(projectId, repositoryId);
+    await this.database
+      .connection('repositories')
+      .where({ id: repositoryId, project_id: projectId })
+      .delete();
+    await this.database
+      .connection('projects')
+      .where({ id: projectId })
+      .update({ updated_at: new Date().toISOString() });
+  }
+
+  associateRepositoryConnection(
+    projectId: string,
+    repositoryId: string,
+    connectionId: string | null,
+  ): Promise<RepositoryView> {
+    return this.repositoryCatalog.associateConnection(
+      projectId,
+      repositoryId,
+      connectionId,
+    );
+  }
+
   private async prepareRepository(
-    input: CreateProjectDto,
+    input: RepositoryInput,
   ): Promise<RepositoryInspection> {
     const mode = input.repositoryMode ?? 'local';
     if (mode === 'local') {
@@ -221,7 +342,7 @@ export class ProjectsService {
     }
   }
 
-  private prepareExistingRemote(input: CreateProjectDto) {
+  private prepareExistingRemote(input: RepositoryInput) {
     if (!input.provider || !input.connectionId || !input.remoteRepositoryId) {
       throw new BadRequestException(
         'Sélectionnez un repository distant avant de continuer.',
@@ -234,7 +355,7 @@ export class ProjectsService {
     );
   }
 
-  private prepareNewRemote(input: CreateProjectDto) {
+  private prepareNewRemote(input: RepositoryInput) {
     if (!input.provider || !input.connectionId || !input.remoteRepositoryName) {
       throw new BadRequestException('Indiquez le nom du repository à créer.');
     }
@@ -266,12 +387,26 @@ export class ProjectsService {
   }
 
   private validateDates(input: CreateProjectDto): void {
-    if (input.startDate && input.deadline && input.deadline < input.startDate) {
+    this.validateDateValues(
+      input.startDate,
+      input.deadline,
+      input.followUpDate,
+      input.followUpNote,
+    );
+  }
+
+  private validateDateValues(
+    startDate: string | null | undefined,
+    deadline: string | null | undefined,
+    followUpDate: string | null | undefined,
+    followUpNote: string | null | undefined,
+  ): void {
+    if (startDate && deadline && deadline < startDate) {
       throw new BadRequestException(
         'La deadline doit être postérieure à la date de début.',
       );
     }
-    if (input.followUpNote && !input.followUpDate) {
+    if (followUpNote && !followUpDate) {
       throw new BadRequestException(
         'Ajoutez une date au follow-up ou retirez sa note.',
       );
@@ -334,26 +469,13 @@ export class ProjectsService {
       .first();
   }
 
-  private selectRepositories(projectId: string): Promise<RepositoryRow[]> {
-    return this.database
-      .connection<RepositoryRow>('repositories')
-      .select('*')
-      .where('project_id', projectId)
-      .orderBy('created_at', 'asc');
-  }
-
   private async toProjectView(
     project: ProjectRow,
     freshInspection?: RepositoryInspection,
   ): Promise<ProjectView> {
-    const repositories = await this.selectRepositories(project.id);
-    const repositoryViews = await Promise.all(
-      repositories.map((repository, index) =>
-        this.toRepositoryView(
-          repository,
-          index === 0 ? freshInspection : undefined,
-        ),
-      ),
+    const repositoryViews = await this.repositoryCatalog.listProjectSnapshots(
+      project.id,
+      freshInspection,
     );
 
     return {
@@ -389,66 +511,5 @@ export class ProjectsService {
     } catch {
       return [];
     }
-  }
-
-  private async toRepositoryView(
-    repository: RepositoryRow,
-    freshInspection?: RepositoryInspection,
-  ): Promise<RepositoryView> {
-    const inspection =
-      freshInspection?.canonicalPath === repository.local_path
-        ? freshInspection
-        : await this.inspectStoredRepository(repository.local_path);
-    const updatedAt = inspection
-      ? await this.syncRepositoryMetadata(repository, inspection)
-      : repository.updated_at;
-
-    return {
-      id: repository.id,
-      name: inspection?.name ?? repository.name,
-      localPath: repository.local_path,
-      remoteUrl: inspection ? inspection.remoteUrl : repository.remote_url,
-      provider: inspection?.provider ?? repository.provider,
-      state:
-        inspection?.state ??
-        (await this.git.observeRepository(repository.local_path)),
-      createdAt: repository.created_at,
-      updatedAt,
-    };
-  }
-
-  private async inspectStoredRepository(
-    repositoryPath: string,
-  ): Promise<RepositoryInspection | undefined> {
-    try {
-      return await this.git.inspectRepository(repositoryPath);
-    } catch {
-      return undefined;
-    }
-  }
-
-  private async syncRepositoryMetadata(
-    repository: RepositoryRow,
-    inspection: RepositoryInspection,
-  ): Promise<string> {
-    if (
-      repository.name === inspection.name &&
-      repository.remote_url === inspection.remoteUrl &&
-      repository.provider === inspection.provider
-    ) {
-      return repository.updated_at;
-    }
-
-    const updatedAt = new Date().toISOString();
-    await this.database
-      .connection('repositories')
-      .where({ id: repository.id })
-      .update({
-        name: inspection.name,
-        remote_url: inspection.remoteUrl,
-        provider: inspection.provider,
-        updated_at: updatedAt,
-      });
-    return updatedAt;
   }
 }

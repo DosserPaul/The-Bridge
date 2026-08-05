@@ -1,5 +1,14 @@
 import { HttpException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import {
+  detectProviderFromRemote,
+  parseGitRemote,
+  type GitRemoteLocation,
+} from '../repositories/git-remote';
+import {
+  RepositoryCatalogService,
+  type RepositoryRecord,
+} from '../repositories/repository-catalog.service';
 import { GitHubClientService } from './github-client.service';
 import { GitLabClientService } from './gitlab-client.service';
 import {
@@ -11,54 +20,6 @@ import type {
   ProjectPipelinesView,
   RepositoryPipelinesView,
 } from './integrations.types';
-
-interface RepositoryRow {
-  id: string;
-  name: string;
-  remote_url: string | null;
-  provider: 'github' | 'gitlab' | 'unknown';
-}
-
-export interface GitRemoteLocation {
-  hostname: string;
-  projectPath: string;
-}
-
-function safeDecodePath(path: string): string {
-  try {
-    return decodeURIComponent(path);
-  } catch {
-    return path;
-  }
-}
-
-export function parseGitRemote(remoteUrl: string): GitRemoteLocation | null {
-  let hostname: string;
-  let pathname: string;
-
-  if (!remoteUrl.includes('://')) {
-    const scpLocation = remoteUrl.match(/^(?:[^@]+@)?([^:/]+):(.+)$/);
-    if (!scpLocation) return null;
-    hostname = scpLocation[1];
-    pathname = scpLocation[2];
-  } else {
-    try {
-      const url = new URL(remoteUrl);
-      hostname = url.hostname;
-      pathname = url.pathname;
-    } catch {
-      return null;
-    }
-  }
-
-  const projectPath = safeDecodePath(pathname)
-    .replace(/^\/+/, '')
-    .replace(/\.git$/, '')
-    .replace(/\/+$/, '');
-
-  if (!hostname || !projectPath) return null;
-  return { hostname: hostname.toLowerCase(), projectPath };
-}
 
 function connectionProjectPath(
   remote: GitRemoteLocation,
@@ -82,6 +43,7 @@ function connectionProjectPath(
 export class ProjectPipelinesService {
   constructor(
     private readonly database: DatabaseService,
+    private readonly repositoryCatalog: RepositoryCatalogService,
     private readonly integrations: IntegrationsService,
     private readonly gitlab: GitLabClientService,
     private readonly github: GitHubClientService,
@@ -96,11 +58,8 @@ export class ProjectPipelinesService {
 
     if (!project) throw new NotFoundException('Projet introuvable.');
 
-    const repositories = await this.database
-      .connection<RepositoryRow>('repositories')
-      .select('id', 'name', 'remote_url', 'provider')
-      .where('project_id', projectId)
-      .orderBy('created_at', 'asc');
+    const repositories =
+      await this.repositoryCatalog.refreshProjectRecords(projectId);
     const [gitLabConnections, gitHubConnections] = await Promise.all([
       this.integrations.findAllGitLabRecords(),
       this.integrations.findAllGitHubRecords(),
@@ -121,7 +80,7 @@ export class ProjectPipelinesService {
   }
 
   private async findForRepository(
-    repository: RepositoryRow,
+    repository: RepositoryRecord,
     gitLabConnections: GitLabConnectionRecord[],
     gitHubConnections: GitHubConnectionRecord[],
   ): Promise<RepositoryPipelinesView> {
@@ -142,14 +101,54 @@ export class ProjectPipelinesService {
       );
     }
 
-    const provider = this.resolveProvider(repository.provider, remote.hostname);
+    const connections = [...gitLabConnections, ...gitHubConnections];
+    const explicitConnection = repository.connection_id
+      ? connections.find(
+          (connection) => connection.id === repository.connection_id,
+        )
+      : undefined;
+    if (repository.connection_id && !explicitConnection) {
+      return this.emptyRepositoryView(
+        repository,
+        'connection_required',
+        'La connexion explicitement associée à ce repository est indisponible.',
+      );
+    }
+    const inferredConnection = explicitConnection
+      ? undefined
+      : connections.find(
+          (connection) =>
+            new URL(connection.baseUrl).hostname.toLowerCase() ===
+            remote.hostname,
+        );
+    const connection = explicitConnection ?? inferredConnection;
+    if (inferredConnection) {
+      await this.repositoryCatalog.associateConnection(
+        repository.project_id,
+        repository.id,
+        inferredConnection.id,
+      );
+    }
+    const provider =
+      connection?.provider ??
+      (repository.provider === 'unknown'
+        ? detectProviderFromRemote(repository.remote_url)
+        : repository.provider);
 
     if (provider === 'github') {
-      return this.findGitHubActions(repository, remote, gitHubConnections);
+      return this.findGitHubActions(
+        repository,
+        remote,
+        connection?.provider === 'github' ? connection : undefined,
+      );
     }
 
     if (provider === 'gitlab') {
-      return this.findGitLabPipelines(repository, remote, gitLabConnections);
+      return this.findGitLabPipelines(
+        repository,
+        remote,
+        connection?.provider === 'gitlab' ? connection : undefined,
+      );
     }
 
     return this.emptyRepositoryView(
@@ -160,12 +159,10 @@ export class ProjectPipelinesService {
   }
 
   private async findGitHubActions(
-    repository: RepositoryRow,
+    repository: RepositoryRecord,
     remote: GitRemoteLocation,
-    connections: GitHubConnectionRecord[],
+    connection: GitHubConnectionRecord | undefined,
   ): Promise<RepositoryPipelinesView> {
-    const connection = this.findConnection(remote, connections);
-
     if (!connection) {
       return this.emptyRepositoryView(
         repository,
@@ -208,12 +205,10 @@ export class ProjectPipelinesService {
   }
 
   private async findGitLabPipelines(
-    repository: RepositoryRow,
+    repository: RepositoryRecord,
     remote: GitRemoteLocation,
-    connections: GitLabConnectionRecord[],
+    connection: GitLabConnectionRecord | undefined,
   ): Promise<RepositoryPipelinesView> {
-    const connection = this.findConnection(remote, connections);
-
     if (!connection) {
       return this.emptyRepositoryView(
         repository,
@@ -256,28 +251,6 @@ export class ProjectPipelinesService {
     }
   }
 
-  private findConnection<
-    Connection extends GitHubConnectionRecord | GitLabConnectionRecord,
-  >(
-    remote: GitRemoteLocation,
-    connections: Connection[],
-  ): Connection | undefined {
-    return connections.find(
-      (candidate) =>
-        new URL(candidate.baseUrl).hostname.toLowerCase() === remote.hostname,
-    );
-  }
-
-  private resolveProvider(
-    storedProvider: RepositoryRow['provider'],
-    hostname: string,
-  ): RepositoryRow['provider'] {
-    if (storedProvider !== 'unknown') return storedProvider;
-    if (hostname === 'github.com') return 'github';
-    if (hostname.includes('gitlab')) return 'gitlab';
-    return 'unknown';
-  }
-
   private isConnectionError(error: unknown): boolean {
     return (
       error instanceof HttpException &&
@@ -286,7 +259,7 @@ export class ProjectPipelinesService {
   }
 
   private emptyRepositoryView(
-    repository: RepositoryRow,
+    repository: RepositoryRecord,
     state: RepositoryPipelinesView['state'],
     message: string,
   ): RepositoryPipelinesView {

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../database/database.module';
+import { RepositoriesModule } from '../repositories/repositories.module';
 import { GitLabClientService } from './gitlab-client.service';
 import { GitHubClientService } from './github-client.service';
 import { GitHubIntegrationsController } from './github-integrations.controller';
@@ -11,7 +12,7 @@ import { ProjectPipelinesService } from './project-pipelines.service';
 import { RemoteRepositoriesService } from './remote-repositories.service';
 
 @Module({
-  imports: [DatabaseModule],
+  imports: [DatabaseModule, RepositoriesModule],
   controllers: [
     IntegrationsController,
     GitHubIntegrationsController,
@@ -25,6 +26,6 @@ import { RemoteRepositoriesService } from './remote-repositories.service';
     ProjectPipelinesService,
     RemoteRepositoriesService,
   ],
-  exports: [RemoteRepositoriesService],
+  exports: [IntegrationsService, RemoteRepositoriesService],
 })
 export class IntegrationsModule {}
