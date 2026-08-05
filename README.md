@@ -32,7 +32,7 @@ credentials into a hosted service.
 - Validate and normalize local paths before project creation.
 - Read repository branch, head commit, remote, and working-tree state.
 - Connect GitHub, GitLab.com, or a self-hosted GitLab instance.
-- Display recent GitLab pipelines for connected repositories.
+- Display recent GitHub Actions and GitLab pipelines through a shared CI/CD view.
 - Record application actions in a categorized, searchable activity log.
 - Store provider credentials in the operating-system credential store.
 
@@ -95,7 +95,8 @@ credential-store data.
 Open **Settings → Integrations** to connect a provider.
 
 - GitHub repository listing requires metadata read access. Repository creation
-  requires administration write access for a fine-grained token.
+  requires administration write access for a fine-grained token. Private
+  repository workflow runs require repository access and Actions read access.
 - GitLab repository listing and pipeline access require `read_api`. Remote
   project creation requires `api`.
 - Clone credentials are provided to Git only for the duration of the command.
@@ -122,6 +123,7 @@ The local API currently exposes the following resource groups:
 - `/api/clients`
 - `/api/projects`
 - `/api/projects/validate-repository-path`
+- `/api/projects/:projectId/pipelines`
 - `/api/activity`
 - `/api/integrations/github`
 - `/api/integrations/gitlab`
