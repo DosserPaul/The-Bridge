@@ -50,6 +50,18 @@ _Avoid_: Sub-agent, child agent
 The provider, model, service tier, reasoning level, limits, and fallback policy used to execute an agent. It is a replaceable policy rather than part of the agent’s identity.
 _Avoid_: Agent model, hard-coded model
 
+**Agent scope**:
+The explicit set of projects and repositories within which an agent or agent team may receive missions. It limits context and authority without assigning current work.
+_Avoid_: Agent assignment, workspace access
+
+**Permission policy**:
+The maximum autonomy granted to an agent, independently of the runtime used to execute it.
+_Avoid_: Approval policy, role
+
+**Approval policy**:
+The rule that determines when an agent action must receive human authorization before it can continue.
+_Avoid_: Permission policy, access level
+
 **Mission**:
 A bounded objective assigned to a person, agent, or agent team. A mission may be decomposed into delegated missions while retaining a single traceable outcome.
 _Avoid_: Prompt, agent task
