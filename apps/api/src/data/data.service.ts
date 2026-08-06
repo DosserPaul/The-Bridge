@@ -39,6 +39,12 @@ const databaseTables: Record<BackupTable, string> = {
   projectTimeEntries: 'project_time_entries',
   localActionRuns: 'local_action_runs',
   todayFocusItems: 'today_focus_items',
+  agents: 'agents',
+  agentProjectScopes: 'agent_project_scopes',
+  agentRepositoryScopes: 'agent_repository_scopes',
+  agentTeams: 'agent_teams',
+  agentTeamProjectScopes: 'agent_team_project_scopes',
+  agentTeamAssignments: 'agent_team_assignments',
   clientContacts: 'client_contacts',
   activityLogs: 'activity_logs',
 };
@@ -47,6 +53,12 @@ const deletionOrder: BackupTable[] = [
   'activityLogs',
   'localActionRuns',
   'todayFocusItems',
+  'agentTeamAssignments',
+  'agentTeamProjectScopes',
+  'agentRepositoryScopes',
+  'agentProjectScopes',
+  'agentTeams',
+  'agents',
   'projectTimeEntries',
   'projectFinances',
   'projectDocuments',
@@ -71,6 +83,12 @@ const insertionOrder: BackupTable[] = [
   'projectTimeEntries',
   'localActionRuns',
   'todayFocusItems',
+  'agents',
+  'agentProjectScopes',
+  'agentRepositoryScopes',
+  'agentTeams',
+  'agentTeamProjectScopes',
+  'agentTeamAssignments',
   'clientContacts',
   'activityLogs',
 ];
@@ -85,7 +103,10 @@ function backupCounts(rows: BackupRows): Record<BackupTable, number> {
   ) as Record<BackupTable, number>;
 }
 
-function normalizeRows(table: BackupTable, rows: Record<string, unknown>[]) {
+function normalizeRows(
+  table: BackupTable,
+  rows: Record<string, unknown>[],
+): Record<string, unknown>[] {
   if (table !== 'clientContacts') return rows;
   return rows.map((row) => ({
     ...row,
@@ -166,11 +187,29 @@ export class DataService {
     const safetyBackup = await this.createLocalBackup();
     await this.database.connection.transaction(async (transaction) => {
       for (const table of deletionOrder) {
+        if (table === 'agentTeamAssignments') {
+          await transaction(databaseTables[table]).update({
+            parent_assignment_id: null,
+          });
+        }
         await transaction(databaseTables[table]).delete();
       }
       for (const table of insertionOrder) {
         const rows = normalizeRows(table, document.data[table]);
-        if (rows.length) await transaction(databaseTables[table]).insert(rows);
+        if (!rows.length) continue;
+        if (table === 'agentTeamAssignments') {
+          await transaction(databaseTables[table]).insert(
+            rows.map((row) => ({ ...row, parent_assignment_id: null })),
+          );
+          for (const row of rows) {
+            if (!row.parent_assignment_id) continue;
+            await transaction(databaseTables[table])
+              .where({ id: row.id })
+              .update({ parent_assignment_id: row.parent_assignment_id });
+          }
+          continue;
+        }
+        await transaction(databaseTables[table]).insert(rows);
       }
     });
 
@@ -246,7 +285,7 @@ export class DataService {
     }
     if (
       input.format !== DATA_BACKUP_FORMAT ||
-      ![1, 2, 3, DATA_BACKUP_VERSION].includes(Number(input.version)) ||
+      ![1, 2, 3, 4, DATA_BACKUP_VERSION].includes(Number(input.version)) ||
       typeof input.createdAt !== 'string' ||
       !isRecord(input.source) ||
       (input.source.dialect !== 'sqlite' &&
@@ -267,6 +306,12 @@ export class DataService {
       projectTimeEntries: input.data.projectTimeEntries ?? [],
       localActionRuns: input.data.localActionRuns ?? [],
       todayFocusItems: input.data.todayFocusItems ?? [],
+      agents: input.data.agents ?? [],
+      agentProjectScopes: input.data.agentProjectScopes ?? [],
+      agentRepositoryScopes: input.data.agentRepositoryScopes ?? [],
+      agentTeams: input.data.agentTeams ?? [],
+      agentTeamProjectScopes: input.data.agentTeamProjectScopes ?? [],
+      agentTeamAssignments: input.data.agentTeamAssignments ?? [],
     };
     for (const table of backupTables) {
       const rows = normalizedData[table];

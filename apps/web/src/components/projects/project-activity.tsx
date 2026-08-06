@@ -30,6 +30,7 @@ const categoryLabels: Record<ActivityCategory, string> = {
   today: "Today",
   projects: "Projet",
   repositories: "Repositories",
+  agents: "Agents",
   integrations: "Intégrations",
   security: "Sécurité",
   system: "Système",

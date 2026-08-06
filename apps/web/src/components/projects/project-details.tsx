@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { ClientAvatar } from "@/components/clients/client-avatar";
 import { ProjectActivityPanel } from "@/components/projects/project-activity";
+import { ProjectAgentsPanel } from "@/components/projects/project-agents";
 import { ProjectAttentionPanel } from "@/components/projects/project-attention";
 import { ProjectDecisionsPanel } from "@/components/projects/project-decisions";
 import { ProjectDocumentsPanel } from "@/components/projects/project-documents";
@@ -126,6 +127,7 @@ type ProjectTab =
   | "environments"
   | "pipelines"
   | "activity"
+  | "agents"
   | "roadmap"
   | "decisions"
   | "local-actions"
@@ -141,6 +143,7 @@ const projectTabs: readonly ProjectTab[] = [
   "environments",
   "pipelines",
   "activity",
+  "agents",
   "roadmap",
   "decisions",
   "local-actions",
@@ -754,6 +757,7 @@ export function ProjectDetails({ projectId }: { projectId: string }) {
             ["environments", "Environnements"],
             ["pipelines", "CI / CD"],
             ["activity", "Activité"],
+            ["agents", "Agents"],
             ["roadmap", "Roadmap"],
             ["decisions", "Décisions"],
             ["local-actions", "Actions locales"],
@@ -870,6 +874,12 @@ export function ProjectDetails({ projectId }: { projectId: string }) {
                 projectId={project.id}
                 refreshKey={pipelineRefreshKey}
               />
+            </div>
+          ) : null}
+
+          {activeTab === "agents" ? (
+            <div id="agents" className="scroll-mt-6">
+              <ProjectAgentsPanel projectId={project.id} />
             </div>
           ) : null}
 

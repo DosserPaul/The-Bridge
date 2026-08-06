@@ -25,6 +25,7 @@ function categoryFromRoute(route: string): ActivityCategory {
   if (root === 'today') return 'today';
   if (root === 'projects') return 'projects';
   if (root === 'repositories') return 'repositories';
+  if (root === 'agents' || root === 'agent-teams') return 'agents';
   if (root === 'integrations') return 'integrations';
   if (root === 'security') return 'security';
   return 'system';

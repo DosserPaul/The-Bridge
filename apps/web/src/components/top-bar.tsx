@@ -29,7 +29,7 @@ const mobileNavigation = [
   { label: "Inbox", icon: Inbox },
   { label: "Clients", icon: Users, href: "/clients" },
   { label: "Projects", icon: FolderKanban, href: "/projects" },
-  { label: "Agents", icon: Bot },
+  { label: "Agents", icon: Bot, href: "/agents" },
   { label: "Actions", icon: Zap },
   { label: "Ideas", icon: Lightbulb },
   { label: "Security", icon: ShieldCheck },
@@ -41,6 +41,7 @@ const mobileNavigation = [
 function breadcrumbs(pathname: string): string[] {
   if (pathname === "/") return ["Workspace", "Today"];
   if (pathname.startsWith("/activity")) return ["Workspace", "Activity"];
+  if (pathname.startsWith("/agents")) return ["Workspace", "Agents"];
   if (pathname === "/clients/new") return ["Workspace", "Clients", "New"];
   if (pathname.endsWith("/edit") && pathname.startsWith("/clients/")) {
     return ["Workspace", "Clients", "Edit"];

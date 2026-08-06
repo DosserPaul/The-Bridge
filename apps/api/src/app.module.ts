@@ -7,6 +7,7 @@ import { DataModule } from './data/data.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { ProjectsModule } from './projects/projects.module';
 import { TodayModule } from './today/today.module';
+import { AgentsModule } from './agents/agents.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { TodayModule } from './today/today.module';
     ProjectsModule,
     IntegrationsModule,
     TodayModule,
+    AgentsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

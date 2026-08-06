@@ -110,6 +110,8 @@ describe('DataService', () => {
     expect(document.data.projectFinances).toHaveLength(1);
     expect(document.data.projectTimeEntries).toHaveLength(1);
     expect(document.data.todayFocusItems).toHaveLength(1);
+    expect(document.data.agents).toEqual([]);
+    expect(document.data.agentTeams).toEqual([]);
     expect(JSON.stringify(document)).not.toContain('accessToken');
   });
 
@@ -127,6 +129,12 @@ describe('DataService', () => {
     delete legacy.data.projectTimeEntries;
     delete legacy.data.localActionRuns;
     delete legacy.data.todayFocusItems;
+    delete legacy.data.agents;
+    delete legacy.data.agentProjectScopes;
+    delete legacy.data.agentRepositoryScopes;
+    delete legacy.data.agentTeams;
+    delete legacy.data.agentTeamProjectScopes;
+    delete legacy.data.agentTeamAssignments;
 
     const result = await service.restoreDocument(legacy);
 
@@ -137,6 +145,8 @@ describe('DataService', () => {
     expect(result.counts.projectTimeEntries).toBe(0);
     expect(result.counts.localActionRuns).toBe(0);
     expect(result.counts.todayFocusItems).toBe(0);
+    expect(result.counts.agents).toBe(0);
+    expect(result.counts.agentTeams).toBe(0);
   });
 
   it('creates a local backup and restores data transactionally', async () => {
@@ -165,6 +175,67 @@ describe('DataService', () => {
         expect.objectContaining({ id: result.safetyBackup.id }),
       ]),
     );
+  });
+
+  it('restores hierarchical agent assignments without orphaning members', async () => {
+    const now = new Date().toISOString();
+    const leadId = randomUUID();
+    const developerId = randomUUID();
+    const teamId = randomUUID();
+    const leadAssignmentId = randomUUID();
+    const developerAssignmentId = randomUUID();
+    await database.connection('agents').insert([
+      {
+        id: leadId,
+        name: 'CTO',
+        slug: 'cto',
+        role: 'CTO',
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        id: developerId,
+        name: 'API Lead',
+        slug: 'api-lead',
+        role: 'API Lead',
+        created_at: now,
+        updated_at: now,
+      },
+    ]);
+    await database.connection('agent_teams').insert({
+      id: teamId,
+      name: 'Engineering',
+      slug: 'engineering',
+      created_at: now,
+      updated_at: now,
+    });
+    await database.connection('agent_team_assignments').insert({
+      id: leadAssignmentId,
+      team_id: teamId,
+      agent_id: leadId,
+      role: 'CTO',
+      created_at: now,
+      updated_at: now,
+    });
+    await database.connection('agent_team_assignments').insert({
+      id: developerAssignmentId,
+      team_id: teamId,
+      agent_id: developerId,
+      parent_assignment_id: leadAssignmentId,
+      role: 'API Lead',
+      created_at: now,
+      updated_at: now,
+    });
+
+    const document = await service.exportDocument();
+    await service.restoreDocument(document);
+
+    await expect(
+      database
+        .connection('agent_team_assignments')
+        .where({ id: developerAssignmentId })
+        .first(),
+    ).resolves.toMatchObject({ parent_assignment_id: leadAssignmentId });
   });
 
   it('rejects an unsupported backup before changing data', async () => {

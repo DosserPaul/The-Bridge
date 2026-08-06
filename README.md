@@ -37,6 +37,12 @@ credentials into a hosted service.
 - Connect GitHub, GitLab.com, or a self-hosted GitLab instance.
 - Display recent GitHub Actions and GitLab pipelines through a shared CI/CD view.
 - Record application actions in a categorized, searchable activity log.
+- Configure reusable agent identities with provider-agnostic runtime profiles,
+  permissions, approval rules, budgets, and project or repository scopes.
+- Compose agents into hierarchical teams with a single lead and validated
+  reporting relationships.
+- Assign individual agents or complete teams from a project mission-control
+  page without enabling model or tool execution yet.
 - Create local backups, download portable exports, and restore data safely.
 - Store provider credentials in the operating-system credential store.
 
@@ -160,6 +166,8 @@ The local API currently exposes the following resource groups:
 - `/api/projects/validate-repository-path`
 - `/api/projects/:projectId/pipelines`
 - `/api/projects/:projectId/repositories`
+- `/api/agents`
+- `/api/agent-teams`
 - `/api/data/status`
 - `/api/data/backups`
 - `/api/data/export`

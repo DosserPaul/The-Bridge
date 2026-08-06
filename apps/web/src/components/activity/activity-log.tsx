@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   AlertTriangle,
+  Bot,
   CheckCircle2,
   ChevronDown,
   CircleX,
@@ -49,6 +50,7 @@ const categoryOptions: Array<{
   { value: "today", label: "Today", icon: Sun },
   { value: "projects", label: "Projets", icon: FolderKanban },
   { value: "repositories", label: "Repositories", icon: GitBranch },
+  { value: "agents", label: "Agents", icon: Bot },
   { value: "integrations", label: "Intégrations", icon: PlugZap },
   { value: "security", label: "Sécurité", icon: ShieldCheck },
   { value: "system", label: "Système", icon: Settings2 },
@@ -77,6 +79,11 @@ const categoryStyles: Record<
     icon: GitBranch,
     label: "Repositories",
     className: "bg-violet-500/10 text-violet-700 dark:text-violet-400",
+  },
+  agents: {
+    icon: Bot,
+    label: "Agents",
+    className: "bg-blue-500/10 text-blue-700 dark:text-blue-400",
   },
   integrations: {
     icon: PlugZap,
