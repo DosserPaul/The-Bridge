@@ -248,6 +248,56 @@ describe('AppController (e2e)', () => {
     });
   });
 
+  it('/agents and /agent-teams manage a logged hierarchical registry', async () => {
+    const lead = await request(app.getHttpServer())
+      .post('/agents')
+      .send({
+        name: 'CTO',
+        role: 'Chief technology officer',
+        status: 'active',
+        runtimeProvider: 'openai',
+        modelId: 'codex',
+      })
+      .expect(201);
+    const developer = await request(app.getHttpServer())
+      .post('/agents')
+      .send({ name: 'Frontend Lead', role: 'Frontend specialist' })
+      .expect(201);
+    const team = await request(app.getHttpServer())
+      .post('/agent-teams')
+      .send({ name: 'Engineering' })
+      .expect(201);
+    const leadBody = lead.body as { id: string };
+    const developerBody = developer.body as { id: string };
+    const teamBody = team.body as { id: string };
+
+    const hierarchy = await request(app.getHttpServer())
+      .put(`/agent-teams/${teamBody.id}/assignments`)
+      .send({
+        assignments: [
+          { agentId: leadBody.id, role: 'CTO', parentAgentId: null },
+          {
+            agentId: developerBody.id,
+            role: 'Frontend Lead',
+            parentAgentId: leadBody.id,
+          },
+        ],
+      })
+      .expect(200);
+
+    const hierarchyBody = hierarchy.body as { assignments: unknown[] };
+    expect(hierarchyBody.assignments).toHaveLength(2);
+    await request(app.getHttpServer())
+      .get('/activity?category=agents')
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({
+          total: 4,
+          counts: { success: 4, error: 0 },
+        });
+      });
+  });
+
   afterEach(async () => {
     await app.close();
   });

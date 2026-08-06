@@ -23,6 +23,16 @@ async function expectSchema(database: DatabaseService): Promise<void> {
   );
   const hasTodayFocusItems =
     await database.connection.schema.hasTable('today_focus_items');
+  const agentTables = await Promise.all(
+    [
+      'agents',
+      'agent_project_scopes',
+      'agent_repository_scopes',
+      'agent_teams',
+      'agent_team_project_scopes',
+      'agent_team_assignments',
+    ].map((table) => database.connection.schema.hasTable(table)),
+  );
 
   expect(migrations).toEqual([
     { name: '001-initial-schema' },
@@ -31,12 +41,15 @@ async function expectSchema(database: DatabaseService): Promise<void> {
     { name: '004-project-workspace' },
     { name: '005-today-command-center' },
     { name: '006-today-activity-category' },
+    { name: '007-agent-registry' },
+    { name: '008-agents-activity-category' },
   ]);
   expect(hasConnectionId).toBe(true);
   expect(hasMilestones).toBe(true);
   expect(hasDecisions).toBe(true);
   expect(workspaceTables).toEqual([true, true, true, true]);
   expect(hasTodayFocusItems).toBe(true);
+  expect(agentTables).toEqual([true, true, true, true, true, true]);
   await expect(
     database.connection('activity_logs').insert({
       id: '11111111-1111-4111-8111-111111111111',
@@ -47,6 +60,21 @@ async function expectSchema(database: DatabaseService): Promise<void> {
       method: 'POST',
       route: '/api/today/focus',
       summary: 'Priorité ajoutée au Focus',
+      http_status: 201,
+      duration_ms: 1,
+      created_at: new Date().toISOString(),
+    }),
+  ).resolves.toBeDefined();
+  await expect(
+    database.connection('activity_logs').insert({
+      id: '33333333-3333-4333-8333-333333333333',
+      request_id: '44444444-4444-4444-8444-444444444444',
+      category: 'agents',
+      action: 'agent.created',
+      status: 'success',
+      method: 'POST',
+      route: '/api/agents',
+      summary: 'Agent créé',
       http_status: 201,
       duration_ms: 1,
       created_at: new Date().toISOString(),

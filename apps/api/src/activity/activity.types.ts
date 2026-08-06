@@ -3,6 +3,7 @@ export const activityCategories = [
   'today',
   'projects',
   'repositories',
+  'agents',
   'integrations',
   'security',
   'system',

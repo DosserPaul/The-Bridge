@@ -5,6 +5,8 @@ import * as projectPlanning from './003-project-planning';
 import * as projectWorkspace from './004-project-workspace';
 import * as todayCommandCenter from './005-today-command-center';
 import * as todayActivityCategory from './006-today-activity-category';
+import * as agentRegistry from './007-agent-registry';
+import * as agentsActivityCategory from './008-agents-activity-category';
 
 const migrations: Record<string, Knex.Migration> = {
   '001-initial-schema': initialSchema,
@@ -13,6 +15,8 @@ const migrations: Record<string, Knex.Migration> = {
   '004-project-workspace': projectWorkspace,
   '005-today-command-center': todayCommandCenter,
   '006-today-activity-category': todayActivityCategory,
+  '007-agent-registry': agentRegistry,
+  '008-agents-activity-category': agentsActivityCategory,
 };
 
 export const migrationSource: Knex.MigrationSource<string> = {
