@@ -1,14 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { DatabaseService } from '../database/database.service';
+import { GitService } from '../projects/git.service';
+import { parseGitRemote } from '../repositories/git-remote';
+import { RepositoryCatalogService } from '../repositories/repository-catalog.service';
+import { GitHubClientService } from './github-client.service';
 import { GitLabClientService } from './gitlab-client.service';
 import {
   IntegrationsService,
+  type GitHubConnectionRecord,
   type GitLabConnectionRecord,
 } from './integrations.service';
-import {
-  parseGitRemote,
-  ProjectPipelinesService,
-} from './project-pipelines.service';
+import { ProjectPipelinesService } from './project-pipelines.service';
 
 describe('parseGitRemote', () => {
   it.each([
@@ -30,47 +32,49 @@ describe('parseGitRemote', () => {
 
 describe('ProjectPipelinesService', () => {
   let database: DatabaseService;
+  let repositoryCatalog: RepositoryCatalogService;
   const projectId = randomUUID();
   const repositoryId = randomUUID();
 
-  beforeEach(() => {
+  beforeEach(async () => {
     database = new DatabaseService(':memory:');
+    await database.initialize();
+    repositoryCatalog = new RepositoryCatalogService(
+      database,
+      new GitService(),
+    );
     const now = new Date().toISOString();
-    database.connection
-      .prepare(
-        `INSERT INTO projects (id, name, created_at, updated_at)
-         VALUES (?, ?, ?, ?)`,
-      )
-      .run(projectId, 'JurisLive', now, now);
-    database.connection
-      .prepare(
-        `INSERT INTO repositories (
-           id, project_id, name, local_path, remote_url, provider,
-           created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        repositoryId,
-        projectId,
-        'api',
-        '/tmp/jurislive-api',
-        'git@gitlab.com:juris/api.git',
-        'gitlab',
-        now,
-        now,
-      );
+    await database.connection('projects').insert({
+      id: projectId,
+      name: 'JurisLive',
+      created_at: now,
+      updated_at: now,
+    });
+    await database.connection('repositories').insert({
+      id: repositoryId,
+      project_id: projectId,
+      name: 'api',
+      local_path: '/tmp/jurislive-api',
+      remote_url: 'git@gitlab.com:juris/api.git',
+      provider: 'gitlab',
+      created_at: now,
+      updated_at: now,
+    });
   });
 
-  afterEach(() => database.onModuleDestroy());
+  afterEach(async () => database.onModuleDestroy());
 
   it('asks for a connection when a GitLab remote has no matching account', async () => {
     const integrations = {
-      findAllGitLabRecords: jest.fn().mockReturnValue([]),
+      findAllGitLabRecords: jest.fn().mockResolvedValue([]),
+      findAllGitHubRecords: jest.fn().mockResolvedValue([]),
     };
     const service = new ProjectPipelinesService(
       database,
+      repositoryCatalog,
       integrations as unknown as IntegrationsService,
       {} as GitLabClientService,
+      {} as GitHubClientService,
     );
 
     await expect(service.findForProject(projectId)).resolves.toEqual({
@@ -99,7 +103,8 @@ describe('ProjectPipelinesService', () => {
       updatedAt: new Date().toISOString(),
     };
     const integrations = {
-      findAllGitLabRecords: jest.fn().mockReturnValue([connection]),
+      findAllGitLabRecords: jest.fn().mockResolvedValue([connection]),
+      findAllGitHubRecords: jest.fn().mockResolvedValue([]),
       readToken: jest.fn().mockResolvedValue('glpat-secret'),
     };
     const gitlab = {
@@ -117,10 +122,24 @@ describe('ProjectPipelinesService', () => {
         },
       ]),
     };
+    await database.connection('provider_connections').insert({
+      id: connection.id,
+      provider: connection.provider,
+      base_url: connection.baseUrl,
+      credential_account: connection.credentialAccount,
+      account_id: connection.accountId,
+      account_username: connection.accountUsername,
+      account_name: connection.accountName,
+      account_avatar_url: connection.accountAvatarUrl,
+      created_at: connection.createdAt,
+      updated_at: connection.updatedAt,
+    });
     const service = new ProjectPipelinesService(
       database,
+      repositoryCatalog,
       integrations as unknown as IntegrationsService,
       gitlab as unknown as GitLabClientService,
+      {} as GitHubClientService,
     );
 
     const result = await service.findForProject(projectId);
@@ -134,5 +153,81 @@ describe('ProjectPipelinesService', () => {
       state: 'ready',
       pipelines: [expect.objectContaining({ status: 'success' })],
     });
+  });
+
+  it('loads GitHub Actions for a GitHub repository', async () => {
+    await database
+      .connection('repositories')
+      .where({ id: repositoryId })
+      .update({
+        remote_url: 'git@github.com:DosserPaul/The-Bridge.git',
+        provider: 'github',
+      });
+    const connection: GitHubConnectionRecord = {
+      id: randomUUID(),
+      provider: 'github',
+      baseUrl: 'https://github.com',
+      credentialAccount: 'github:test',
+      accountId: '84',
+      accountUsername: 'pauldosser',
+      accountName: 'Paul',
+      accountAvatarUrl: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const integrations = {
+      findAllGitLabRecords: jest.fn().mockResolvedValue([]),
+      findAllGitHubRecords: jest.fn().mockResolvedValue([connection]),
+      readToken: jest.fn().mockResolvedValue('github-pat-secret'),
+    };
+    const github = {
+      listWorkflowRuns: jest.fn().mockResolvedValue([
+        {
+          id: '912',
+          number: 18,
+          status: 'success',
+          ref: 'develop',
+          sha: '1234567890abcdef',
+          shortSha: '12345678',
+          webUrl: 'https://github.com/DosserPaul/The-Bridge/actions/runs/912',
+          createdAt: '2026-08-05T14:00:00Z',
+          updatedAt: '2026-08-05T14:01:00Z',
+        },
+      ]),
+    };
+    await database.connection('provider_connections').insert({
+      id: connection.id,
+      provider: connection.provider,
+      base_url: connection.baseUrl,
+      credential_account: connection.credentialAccount,
+      account_id: connection.accountId,
+      account_username: connection.accountUsername,
+      account_name: connection.accountName,
+      account_avatar_url: connection.accountAvatarUrl,
+      created_at: connection.createdAt,
+      updated_at: connection.updatedAt,
+    });
+    const service = new ProjectPipelinesService(
+      database,
+      repositoryCatalog,
+      integrations as unknown as IntegrationsService,
+      {} as GitLabClientService,
+      github as unknown as GitHubClientService,
+    );
+
+    await expect(service.findForProject(projectId)).resolves.toEqual({
+      projectId,
+      repositories: [
+        expect.objectContaining({
+          provider: 'github',
+          state: 'ready',
+          pipelines: [expect.objectContaining({ status: 'success' })],
+        }),
+      ],
+    });
+    expect(github.listWorkflowRuns).toHaveBeenCalledWith(
+      'github-pat-secret',
+      'DosserPaul/The-Bridge',
+    );
   });
 });

@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import type { Knex } from 'knex';
 import { DatabaseService } from '../database/database.service';
 import type {
   ActivityCategory,
@@ -32,10 +33,51 @@ const actionLabels: Record<string, string> = {
   'client.listed': 'Liste des clients consultée',
   'client.viewed': 'Fiche client consultée',
   'client.updated': 'Client modifié',
+  'today.focus.created': 'Priorité ajoutée au Focus',
+  'today.focus.updated': 'Priorité Focus modifiée',
+  'today.focus.deleted': 'Priorité retirée du Focus',
   'project.created': 'Projet créé',
+  'project.updated': 'Projet modifié',
+  'project.archived': 'Projet archivé',
   'project.listed': 'Liste des projets consultée',
   'project.viewed': 'Projet consulté',
-  'project.pipelines.viewed': 'Pipelines du projet consultés',
+  'project.issue.viewed': 'Détail d’une issue consulté',
+  'project.issues.viewed': 'Issues du projet consultées',
+  'project.pull_requests.viewed': 'Pull requests du projet consultées',
+  'project.pull_request.viewed': 'Détail d’une pull request consulté',
+  'project.environments.viewed': 'Environnements du projet consultés',
+  'project.pipelines.viewed': 'CI / CD du projet consultée',
+  'project.milestones.viewed': 'Roadmap du projet consultée',
+  'project.milestone.created': 'Jalon créé',
+  'project.milestone.updated': 'Jalon modifié',
+  'project.milestone.deleted': 'Jalon supprimé',
+  'project.decisions.viewed': 'Décisions du projet consultées',
+  'project.decision.created': 'Décision créée',
+  'project.decision.updated': 'Décision modifiée',
+  'project.decision.deleted': 'Décision supprimée',
+  'project.documents.viewed': 'Documents du projet consultés',
+  'project.document.previewed': 'Document prévisualisé',
+  'project.document.created': 'Document ajouté',
+  'project.document.updated': 'Document modifié',
+  'project.document.deleted': 'Document retiré',
+  'project.commercial.viewed': 'Temps et budget consultés',
+  'project.finance.updated': 'Paramètres financiers modifiés',
+  'project.time.created': 'Saisie de temps ajoutée',
+  'project.time.updated': 'Saisie de temps modifiée',
+  'project.time.deleted': 'Saisie de temps supprimée',
+  'project.local_actions.viewed': 'Actions locales consultées',
+  'project.local_action.launched': 'Action locale lancée',
+  'project.local_action.stopped': 'Action locale arrêtée',
+  'project.health.viewed': 'Santé technique consultée',
+  'repository.added': 'Repository ajouté au projet',
+  'repository.removed': 'Repository retiré du projet',
+  'repository.connection_updated': 'Connexion du repository modifiée',
+  'data.status_viewed': 'État des données consulté',
+  'data.exported': 'Données exportées',
+  'data.backups_listed': 'Sauvegardes locales consultées',
+  'data.backup_created': 'Sauvegarde locale créée',
+  'data.restored': 'Données restaurées depuis un export',
+  'data.backup_restored': 'Sauvegarde locale restaurée',
   'integration.gitlab.listed': 'Connexions GitLab consultées',
   'integration.gitlab.connected': 'Connexion GitLab ajoutée',
   'integration.gitlab.disconnected': 'Connexion GitLab supprimée',
@@ -205,88 +247,93 @@ export class ActivityService {
 
   constructor(private readonly database: DatabaseService) {}
 
-  record(input: ActivityRecordInput): void {
+  async record(input: ActivityRecordInput): Promise<void> {
     const createdAt = new Date().toISOString();
 
     try {
-      this.database.connection
-        .prepare(
-          `INSERT INTO activity_logs (
-             id, request_id, category, action, status, method, route,
-             subject_type, subject_id, summary, request_json, response_json,
-             error_json, http_status, duration_ms, created_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          randomUUID(),
-          input.requestId,
-          input.category,
-          input.action,
-          input.status,
-          input.method,
-          input.route,
-          input.subjectType ?? null,
-          input.subjectId ?? null,
-          this.summarize(input),
-          serializeActivityPayload(input.request),
-          serializeActivityPayload(input.response),
-          serializeActivityPayload(input.error),
-          input.httpStatus,
-          Math.max(0, Math.round(input.durationMs)),
-          createdAt,
-        );
+      await this.database.connection('activity_logs').insert({
+        id: randomUUID(),
+        request_id: input.requestId,
+        category: input.category,
+        action: input.action,
+        status: input.status,
+        method: input.method,
+        route: input.route,
+        subject_type: input.subjectType ?? null,
+        subject_id: input.subjectId ?? null,
+        summary: this.summarize(input),
+        request_json: serializeActivityPayload(input.request),
+        response_json: serializeActivityPayload(input.response),
+        error_json: serializeActivityPayload(input.error),
+        http_status: input.httpStatus,
+        duration_ms: Math.max(0, Math.round(input.durationMs)),
+        created_at: createdAt,
+      });
 
-      this.pruneIfNeeded();
+      await this.pruneIfNeeded();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(`Activity log skipped: ${message}`);
     }
   }
 
-  list(query: ActivityQuery): ActivityListResult {
-    const filters = this.buildFilters(query);
-    const cursorFilters = [...filters.clauses];
-    const cursorParameters = [...filters.parameters];
-
+  async list(query: ActivityQuery): Promise<ActivityListResult> {
+    const rowsQuery = this.applyFilters(
+      this.database
+        .connection<ActivityRow>('activity_logs')
+        .select(
+          'id',
+          'request_id',
+          'category',
+          'action',
+          'status',
+          'method',
+          'route',
+          'subject_type',
+          'subject_id',
+          'summary',
+          'http_status',
+          'duration_ms',
+          'created_at',
+        ),
+      query,
+    );
     if (query.cursor) {
       const cursor = decodeCursor(query.cursor);
-      cursorFilters.push('(created_at < ? OR (created_at = ? AND id < ?))');
-      cursorParameters.push(cursor.createdAt, cursor.createdAt, cursor.id);
+      rowsQuery.andWhere((builder) => {
+        builder
+          .where('created_at', '<', cursor.createdAt)
+          .orWhere((sameTimestamp) => {
+            sameTimestamp
+              .where('created_at', cursor.createdAt)
+              .andWhere('id', '<', cursor.id);
+          });
+      });
     }
 
-    const where = cursorFilters.length
-      ? `WHERE ${cursorFilters.join(' AND ')}`
-      : '';
-    const rows = this.database.connection
-      .prepare(
-        `SELECT
-           id, request_id, category, action, status, method, route,
-           subject_type, subject_id, summary, http_status, duration_ms,
-           created_at
-         FROM activity_logs
-         ${where}
-         ORDER BY created_at DESC, id DESC
-         LIMIT ?`,
-      )
-      .all(...cursorParameters, query.limit + 1) as ActivityRow[];
+    const rows = await rowsQuery
+      .orderBy('created_at', 'desc')
+      .orderBy('id', 'desc')
+      .limit(query.limit + 1);
 
     const items = rows.slice(0, query.limit).map((row) => this.toListItem(row));
-    const baseWhere = filters.clauses.length
-      ? `WHERE ${filters.clauses.join(' AND ')}`
-      : '';
-    const counts = this.database.connection
-      .prepare(
-        `SELECT
-           COUNT(*) AS total,
-           SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS success,
-           SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS error
-         FROM activity_logs
-         ${baseWhere}`,
+    const counts = (await this.applyFilters(
+      this.database.connection('activity_logs'),
+      query,
+    )
+      .select(
+        this.database.connection.raw('COUNT(*) AS total'),
+        this.database.connection.raw(
+          "SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS success",
+        ),
+        this.database.connection.raw(
+          "SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS error",
+        ),
       )
-      .get(...filters.parameters) as {
-      total: number;
-      success: number | null;
-      error: number | null;
+      .first()) as {
+      total: number | string;
+      success: number | string | null;
+      error: number | string | null;
     };
 
     return {
@@ -295,25 +342,20 @@ export class ActivityService {
         rows.length > query.limit && items.length
           ? encodeCursor(items[items.length - 1])
           : null,
-      total: counts.total,
+      total: Number(counts.total),
       counts: {
-        success: counts.success ?? 0,
-        error: counts.error ?? 0,
+        success: Number(counts.success ?? 0),
+        error: Number(counts.error ?? 0),
       },
     };
   }
 
-  findOne(activityId: string): ActivityDetail {
-    const row = this.database.connection
-      .prepare(
-        `SELECT
-           id, request_id, category, action, status, method, route,
-           subject_type, subject_id, summary, request_json, response_json,
-           error_json, http_status, duration_ms, created_at
-         FROM activity_logs
-         WHERE id = ?`,
-      )
-      .get(activityId) as ActivityRow | undefined;
+  async findOne(activityId: string): Promise<ActivityDetail> {
+    const row = await this.database
+      .connection<ActivityRow>('activity_logs')
+      .select('*')
+      .where({ id: activityId })
+      .first();
 
     if (!row) throw new NotFoundException('Événement Activity introuvable.');
 
@@ -336,44 +378,43 @@ export class ActivityService {
     return `${label}${suffix}`;
   }
 
-  private buildFilters(query: ActivityQuery): {
-    clauses: string[];
-    parameters: Array<string>;
-  } {
-    const clauses: string[] = [];
-    const parameters: string[] = [];
-
+  private applyFilters<Query extends Knex.QueryBuilder>(
+    builder: Query,
+    query: ActivityQuery,
+  ): Query {
     if (query.category) {
-      clauses.push('category = ?');
-      parameters.push(query.category);
+      builder.where('category', query.category);
     }
     if (query.status) {
-      clauses.push('status = ?');
-      parameters.push(query.status);
+      builder.where('status', query.status);
     }
     if (query.from) {
-      clauses.push('created_at >= ?');
-      parameters.push(query.from);
+      builder.where('created_at', '>=', query.from);
     }
     if (query.to) {
-      clauses.push('created_at <= ?');
-      parameters.push(query.to);
+      builder.where('created_at', '<=', query.to);
     }
     if (query.search) {
-      clauses.push(
-        `(summary LIKE ? COLLATE NOCASE
-          OR action LIKE ? COLLATE NOCASE
-          OR route LIKE ? COLLATE NOCASE
-          OR subject_id LIKE ? COLLATE NOCASE)`,
+      const search = `%${query.search.toLowerCase()}%`;
+      builder.whereRaw(
+        `(LOWER(summary) LIKE ?
+          OR LOWER(action) LIKE ?
+          OR LOWER(route) LIKE ?
+          OR LOWER(subject_id) LIKE ?)`,
+        [search, search, search, search],
       );
-      const search = `%${query.search}%`;
-      parameters.push(search, search, search, search);
     }
-
-    return { clauses, parameters };
+    return builder;
   }
 
   private toListItem(row: ActivityRow): ActivityListItem {
+    const summary =
+      row.action === 'project.pipelines.viewed'
+        ? row.summary.replace(
+            /^Pipelines du projet consultés/,
+            'CI / CD du projet consultée',
+          )
+        : row.summary;
     return {
       id: row.id,
       requestId: row.request_id,
@@ -385,14 +426,14 @@ export class ActivityService {
       subject: row.subject_type
         ? { type: row.subject_type, id: row.subject_id }
         : null,
-      summary: row.summary,
+      summary,
       httpStatus: row.http_status,
       durationMs: row.duration_ms,
       createdAt: row.created_at,
     };
   }
 
-  private pruneIfNeeded(): void {
+  private async pruneIfNeeded(): Promise<void> {
     const now = Date.now();
     if (now - this.lastPrunedAt < 60 * 60 * 1_000) return;
     this.lastPrunedAt = now;
@@ -400,25 +441,27 @@ export class ActivityService {
     const cutoff = new Date(
       now - RETENTION_DAYS * 24 * 60 * 60 * 1_000,
     ).toISOString();
-    this.database.connection
-      .prepare('DELETE FROM activity_logs WHERE created_at < ?')
-      .run(cutoff);
+    await this.database
+      .connection('activity_logs')
+      .where('created_at', '<', cutoff)
+      .delete();
 
-    const count = this.database.connection
-      .prepare('SELECT COUNT(*) AS count FROM activity_logs')
-      .get() as { count: number };
-    const overflow = count.count - MAX_ROWS;
+    const count = (await this.database
+      .connection('activity_logs')
+      .count({ count: '*' })
+      .first()) as { count: number | string };
+    const overflow = Number(count.count) - MAX_ROWS;
     if (overflow <= 0) return;
 
-    this.database.connection
-      .prepare(
-        `DELETE FROM activity_logs
-         WHERE id IN (
-           SELECT id FROM activity_logs
-           ORDER BY created_at ASC, id ASC
-           LIMIT ?
-         )`,
-      )
-      .run(overflow);
+    const oldestIds = this.database
+      .connection('activity_logs')
+      .select('id')
+      .orderBy('created_at', 'asc')
+      .orderBy('id', 'asc')
+      .limit(overflow);
+    await this.database
+      .connection('activity_logs')
+      .whereIn('id', oldestIds)
+      .delete();
   }
 }

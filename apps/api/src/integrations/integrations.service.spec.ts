@@ -13,8 +13,9 @@ describe('IntegrationsService', () => {
   let github: jest.Mocked<Pick<GitHubClientService, 'validateConnection'>>;
   let integrations: IntegrationsService;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     database = new DatabaseService(':memory:');
+    await database.initialize();
     credentials = {
       store: jest.fn().mockResolvedValue(undefined),
       read: jest.fn().mockResolvedValue('secret-token'),
@@ -61,13 +62,15 @@ describe('IntegrationsService', () => {
       credentialState: 'available',
     });
 
-    const stored = database.connection
-      .prepare(
-        `SELECT provider, base_url, credential_account
-         FROM provider_connections
-         WHERE provider = 'github'`,
-      )
-      .get() as Record<string, unknown>;
+    const stored = await database
+      .connection<{
+        provider: string;
+        base_url: string;
+        credential_account: string;
+      }>('provider_connections')
+      .select('provider', 'base_url', 'credential_account')
+      .where({ provider: 'github' })
+      .first();
     expect(stored).toMatchObject({
       provider: 'github',
       base_url: 'https://github.com',
@@ -95,7 +98,7 @@ describe('IntegrationsService', () => {
     await expect(integrations.listGitHubConnections()).resolves.toEqual([]);
   });
 
-  afterEach(() => database.onModuleDestroy());
+  afterEach(async () => database.onModuleDestroy());
 
   it('validates the token and stores only its keychain account in SQLite', async () => {
     const connection = await integrations.connectGitLab({
@@ -117,9 +120,10 @@ describe('IntegrationsService', () => {
       credentialState: 'available',
     });
 
-    const stored = database.connection
-      .prepare('SELECT * FROM provider_connections')
-      .get() as Record<string, unknown>;
+    const stored = await database
+      .connection<Record<string, unknown>>('provider_connections')
+      .select('*')
+      .first();
     expect(stored).not.toHaveProperty('token');
     expect(JSON.stringify(stored)).not.toContain('glpat-secret');
   });

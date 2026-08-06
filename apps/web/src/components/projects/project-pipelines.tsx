@@ -114,6 +114,13 @@ function RepositoryPipelineGroup({
 }: {
   repository: RepositoryPipelines;
 }) {
+  const providerName =
+    repository.provider === "github"
+      ? "GitHub"
+      : repository.provider === "gitlab"
+        ? "GitLab"
+        : "le provider";
+
   if (repository.state !== "ready") {
     const needsConnection = repository.state === "connection_required";
 
@@ -123,7 +130,14 @@ function RepositoryPipelineGroup({
           {repository.state === "error" ? (
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
           ) : (
-            <GitFork className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+            <GitFork
+              className={cn(
+                "mt-0.5 size-4 shrink-0",
+                repository.provider === "gitlab"
+                  ? "text-[#e24329]"
+                  : "text-muted-foreground",
+              )}
+            />
           )}
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">{repository.repositoryName}</p>
@@ -139,7 +153,7 @@ function RepositoryPipelineGroup({
                 )}
               >
                 <Settings2 data-icon="inline-start" />
-                Connecter GitLab
+                Configurer {providerName}
               </Link>
             ) : null}
           </div>
@@ -152,11 +166,18 @@ function RepositoryPipelineGroup({
     <div className="overflow-hidden rounded-xl border">
       <div className="flex items-center justify-between border-b bg-muted/25 px-4 py-3">
         <div className="flex items-center gap-2">
-          <GitFork className="size-4 text-[#e24329]" />
+          <GitFork
+            className={cn(
+              "size-4",
+              repository.provider === "gitlab"
+                ? "text-[#e24329]"
+                : "text-muted-foreground",
+            )}
+          />
           <p className="text-xs font-semibold">{repository.repositoryName}</p>
         </div>
         <span className="text-[10px] text-muted-foreground">
-          {repository.pipelines.length} pipeline
+          {repository.pipelines.length} exécution
           {repository.pipelines.length > 1 ? "s" : ""}
         </span>
       </div>
@@ -168,7 +189,7 @@ function RepositoryPipelineGroup({
         <div className="px-4 py-8 text-center">
           <CircleDashed className="mx-auto size-5 text-muted-foreground/60" />
           <p className="mt-2 text-xs text-muted-foreground">
-            Aucun pipeline récent sur ce repository.
+            Aucune exécution CI / CD récente sur ce repository.
           </p>
         </div>
       )}
@@ -199,7 +220,7 @@ export function ProjectPipelinesPanel({
           setError(
             loadError instanceof Error
               ? loadError.message
-              : "Impossible de charger les pipelines.",
+              : "Impossible de charger les exécutions CI / CD.",
           );
         }
       })
@@ -213,11 +234,9 @@ export function ProjectPipelinesPanel({
     <section className="space-y-4">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="font-heading text-sm font-semibold">
-            Pipelines GitLab
-          </h2>
+          <h2 className="font-heading text-sm font-semibold">CI / CD</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Les cinq exécutions les plus récentes par repository.
+            Les cinq exécutions GitHub Actions ou GitLab les plus récentes.
           </p>
         </div>
         <Link

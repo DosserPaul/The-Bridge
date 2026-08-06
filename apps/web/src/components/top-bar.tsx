@@ -7,6 +7,7 @@ import {
   Bell,
   Bot,
   FolderKanban,
+  HardDrive,
   History,
   Inbox,
   Lightbulb,
@@ -14,14 +15,17 @@ import {
   PlugZap,
   Search,
   ShieldCheck,
+  Sun,
   Users,
   X,
   Zap,
 } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
+import { ProjectHeaderActions } from "@/components/projects/project-header-actions";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const mobileNavigation = [
+  { label: "Today", icon: Sun, href: "/" },
   { label: "Inbox", icon: Inbox },
   { label: "Clients", icon: Users, href: "/clients" },
   { label: "Projects", icon: FolderKanban, href: "/projects" },
@@ -31,9 +35,11 @@ const mobileNavigation = [
   { label: "Security", icon: ShieldCheck },
   { label: "Activity", icon: History, href: "/activity" },
   { label: "Integrations", icon: PlugZap, href: "/settings/integrations" },
+  { label: "Data", icon: HardDrive, href: "/settings/data" },
 ];
 
 function breadcrumbs(pathname: string): string[] {
+  if (pathname === "/") return ["Workspace", "Today"];
   if (pathname.startsWith("/activity")) return ["Workspace", "Activity"];
   if (pathname === "/clients/new") return ["Workspace", "Clients", "New"];
   if (pathname.endsWith("/edit") && pathname.startsWith("/clients/")) {
@@ -44,13 +50,25 @@ function breadcrumbs(pathname: string): string[] {
   }
   if (pathname.startsWith("/clients")) return ["Workspace", "Clients"];
   if (pathname === "/projects/new") return ["Workspace", "Projects", "New"];
+  if (pathname.endsWith("/edit") && pathname.startsWith("/projects/")) {
+    return ["Workspace", "Projects", "Edit"];
+  }
+  if (
+    pathname.endsWith("/repositories/new") &&
+    pathname.startsWith("/projects/")
+  ) {
+    return ["Workspace", "Projects", "Repository", "New"];
+  }
   if (pathname.startsWith("/projects/")) {
     return ["Workspace", "Projects", "Overview"];
   }
   if (pathname.startsWith("/settings/integrations")) {
     return ["Workspace", "Settings", "Integrations"];
   }
-  return ["Workspace", "Projects"];
+  if (pathname.startsWith("/settings/data")) {
+    return ["Workspace", "Settings", "Data"];
+  }
+  return ["Workspace", "Today"];
 }
 
 export function TopBar() {
@@ -106,6 +124,8 @@ export function TopBar() {
             Local API
           </span>
         </div>
+
+        <ProjectHeaderActions pathname={pathname} />
 
         <button
           type="button"

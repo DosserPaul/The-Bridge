@@ -8,6 +8,7 @@ import {
   CheckSquare2,
   FolderKanban,
   History,
+  HardDrive,
   Inbox,
   Lightbulb,
   Plus,
@@ -33,7 +34,12 @@ interface NavigationItem {
 }
 
 const navigation: NavigationItem[] = [
-  { label: "Today", icon: Sun },
+  {
+    label: "Today",
+    icon: Sun,
+    href: "/",
+    match: (pathname) => pathname === "/",
+  },
   { label: "Inbox", icon: Inbox },
   {
     label: "Clients",
@@ -45,7 +51,7 @@ const navigation: NavigationItem[] = [
     label: "Projects",
     icon: FolderKanban,
     href: "/projects",
-    match: (pathname) => pathname === "/" || pathname.startsWith("/projects"),
+    match: (pathname) => pathname.startsWith("/projects"),
   },
   { label: "Agents", icon: Bot },
   { label: "Actions", icon: Zap },
@@ -64,6 +70,12 @@ const navigation: NavigationItem[] = [
     icon: Settings2,
     href: "/settings/integrations",
     match: (pathname) => pathname.startsWith("/settings/integrations"),
+  },
+  {
+    label: "Data",
+    icon: HardDrive,
+    href: "/settings/data",
+    match: (pathname) => pathname.startsWith("/settings/data"),
   },
 ];
 
@@ -148,7 +160,11 @@ export function SidebarNavigation() {
   useEffect(() => {
     const controller = new AbortController();
     void listProjects(controller.signal, { silentActivity: true })
-      .then((data) => setProjects(data.slice(0, 4)))
+      .then((data) =>
+        setProjects(
+          data.filter((project) => project.status !== "archived").slice(0, 4),
+        ),
+      )
       .catch(() => undefined);
     return () => controller.abort();
   }, []);

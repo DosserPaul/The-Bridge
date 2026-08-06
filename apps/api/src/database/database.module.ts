@@ -5,7 +5,11 @@ import { DatabaseService } from './database.service';
   providers: [
     {
       provide: DatabaseService,
-      useFactory: () => new DatabaseService(),
+      useFactory: async () => {
+        const database = new DatabaseService();
+        await database.initialize();
+        return database;
+      },
     },
   ],
   exports: [DatabaseService],
