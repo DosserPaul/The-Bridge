@@ -22,6 +22,7 @@ function categoryFromRoute(route: string): ActivityCategory {
   const segments = route.split('?')[0].split('/').filter(Boolean);
   const root = segments[0] === 'api' ? segments[1] : segments[0];
   if (root === 'clients') return 'clients';
+  if (root === 'today') return 'today';
   if (root === 'projects') return 'projects';
   if (root === 'repositories') return 'repositories';
   if (root === 'integrations') return 'integrations';

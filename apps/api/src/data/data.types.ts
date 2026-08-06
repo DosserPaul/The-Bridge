@@ -1,7 +1,7 @@
 import type { DatabaseDialect } from '../database/database.service';
 
 export const DATA_BACKUP_FORMAT = 'the-bridge-backup';
-export const DATA_BACKUP_VERSION = 3;
+export const DATA_BACKUP_VERSION = 4;
 
 export const backupTables = [
   'clients',
@@ -14,6 +14,7 @@ export const backupTables = [
   'projectFinances',
   'projectTimeEntries',
   'localActionRuns',
+  'todayFocusItems',
   'clientContacts',
   'activityLogs',
 ] as const;

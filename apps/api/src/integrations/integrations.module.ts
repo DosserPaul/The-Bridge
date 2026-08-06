@@ -34,6 +34,12 @@ import { RemoteRepositoriesService } from './remote-repositories.service';
     ProjectPipelinesService,
     RemoteRepositoriesService,
   ],
-  exports: [IntegrationsService, RemoteRepositoriesService],
+  exports: [
+    IntegrationsService,
+    RemoteRepositoriesService,
+    ProjectIssuesService,
+    ProjectOperationsService,
+    ProjectPipelinesService,
+  ],
 })
 export class IntegrationsModule {}

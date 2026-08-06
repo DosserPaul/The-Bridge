@@ -34,7 +34,12 @@ interface NavigationItem {
 }
 
 const navigation: NavigationItem[] = [
-  { label: "Today", icon: Sun },
+  {
+    label: "Today",
+    icon: Sun,
+    href: "/",
+    match: (pathname) => pathname === "/",
+  },
   { label: "Inbox", icon: Inbox },
   {
     label: "Clients",
@@ -46,7 +51,7 @@ const navigation: NavigationItem[] = [
     label: "Projects",
     icon: FolderKanban,
     href: "/projects",
-    match: (pathname) => pathname === "/" || pathname.startsWith("/projects"),
+    match: (pathname) => pathname.startsWith("/projects"),
   },
   { label: "Agents", icon: Bot },
   { label: "Actions", icon: Zap },

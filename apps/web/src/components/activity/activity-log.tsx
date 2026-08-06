@@ -16,6 +16,7 @@ import {
   Search,
   Settings2,
   ShieldCheck,
+  Sun,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -45,6 +46,7 @@ const categoryOptions: Array<{
 }> = [
   { value: "all", label: "Tout", icon: History },
   { value: "clients", label: "Clients", icon: Users },
+  { value: "today", label: "Today", icon: Sun },
   { value: "projects", label: "Projets", icon: FolderKanban },
   { value: "repositories", label: "Repositories", icon: GitBranch },
   { value: "integrations", label: "Intégrations", icon: PlugZap },
@@ -60,6 +62,11 @@ const categoryStyles: Record<
     icon: Users,
     label: "Clients",
     className: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+  },
+  today: {
+    icon: Sun,
+    label: "Today",
+    className: "bg-sky-500/10 text-sky-700 dark:text-sky-400",
   },
   projects: {
     icon: FolderKanban,

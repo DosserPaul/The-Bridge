@@ -86,6 +86,14 @@ describe('DataService', () => {
       created_at: now,
       updated_at: now,
     });
+    await database.connection('today_focus_items').insert({
+      id: randomUUID(),
+      project_id: projectId,
+      title: 'Ship the command center',
+      priority: 'high',
+      created_at: now,
+      updated_at: now,
+    });
 
     const document = await service.exportDocument();
 
@@ -101,6 +109,7 @@ describe('DataService', () => {
     expect(document.data.projectDocuments).toHaveLength(1);
     expect(document.data.projectFinances).toHaveLength(1);
     expect(document.data.projectTimeEntries).toHaveLength(1);
+    expect(document.data.todayFocusItems).toHaveLength(1);
     expect(JSON.stringify(document)).not.toContain('accessToken');
   });
 
@@ -117,6 +126,7 @@ describe('DataService', () => {
     delete legacy.data.projectFinances;
     delete legacy.data.projectTimeEntries;
     delete legacy.data.localActionRuns;
+    delete legacy.data.todayFocusItems;
 
     const result = await service.restoreDocument(legacy);
 
@@ -126,6 +136,7 @@ describe('DataService', () => {
     expect(result.counts.projectFinances).toBe(0);
     expect(result.counts.projectTimeEntries).toBe(0);
     expect(result.counts.localActionRuns).toBe(0);
+    expect(result.counts.todayFocusItems).toBe(0);
   });
 
   it('creates a local backup and restores data transactionally', async () => {

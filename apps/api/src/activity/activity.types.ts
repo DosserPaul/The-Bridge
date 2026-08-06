@@ -1,5 +1,6 @@
 export const activityCategories = [
   'clients',
+  'today',
   'projects',
   'repositories',
   'integrations',
