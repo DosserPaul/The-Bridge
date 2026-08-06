@@ -53,7 +53,12 @@ const navigation: NavigationItem[] = [
     href: "/projects",
     match: (pathname) => pathname.startsWith("/projects"),
   },
-  { label: "Agents", icon: Bot },
+  {
+    label: "Agents",
+    icon: Bot,
+    href: "/agents",
+    match: (pathname) => pathname.startsWith("/agents"),
+  },
   { label: "Actions", icon: Zap },
   { label: "Automations", icon: Workflow },
   { label: "Ideas", icon: Lightbulb },

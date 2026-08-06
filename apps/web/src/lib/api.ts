@@ -602,6 +602,7 @@ export type ActivityCategory =
   | "today"
   | "projects"
   | "repositories"
+  | "agents"
   | "integrations"
   | "security"
   | "system";
@@ -712,6 +713,106 @@ export interface TodayView {
   }>;
 }
 
+export type AgentStatus = "draft" | "active" | "paused" | "archived";
+export type AgentPermissionPolicy = "read_only" | "supervised" | "autonomous";
+export type AgentApprovalPolicy = "always" | "destructive" | "never";
+
+export interface Agent {
+  id: string;
+  name: string;
+  slug: string;
+  avatarDataUrl: string | null;
+  role: string;
+  description: string | null;
+  instructions: string | null;
+  status: AgentStatus;
+  runtime: {
+    provider: string | null;
+    model: string | null;
+    serviceTier: string | null;
+    reasoningLevel: string | null;
+  };
+  capabilities: string[];
+  permissionPolicy: AgentPermissionPolicy;
+  approvalPolicy: AgentApprovalPolicy;
+  monthlyBudgetCents: number | null;
+  maxConcurrency: number | null;
+  projects: Array<{ id: string; name: string }>;
+  repositories: Array<{
+    id: string;
+    name: string;
+    projectId: string;
+    projectName: string;
+  }>;
+  teams: Array<{
+    id: string;
+    name: string;
+    assignmentId: string;
+    role: string;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentInput {
+  name: string;
+  slug?: string;
+  avatarDataUrl?: string | null;
+  role: string;
+  description?: string | null;
+  instructions?: string | null;
+  status?: AgentStatus;
+  runtimeProvider?: string | null;
+  modelId?: string | null;
+  serviceTier?: string | null;
+  reasoningLevel?: string | null;
+  capabilities?: string[];
+  permissionPolicy?: AgentPermissionPolicy;
+  approvalPolicy?: AgentApprovalPolicy;
+  monthlyBudgetCents?: number | null;
+  maxConcurrency?: number | null;
+  projectIds?: string[];
+  repositoryIds?: string[];
+}
+
+export interface AgentAssignment {
+  id: string;
+  parentAssignmentId: string | null;
+  role: string;
+  sortOrder: number;
+  agent: Pick<
+    Agent,
+    "id" | "name" | "slug" | "avatarDataUrl" | "role" | "status" | "runtime"
+  >;
+}
+
+export interface AgentTeam {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  status: "active" | "archived";
+  projects: Array<{ id: string; name: string }>;
+  assignments: AgentAssignment[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentTeamInput {
+  name: string;
+  slug?: string;
+  description?: string | null;
+  status?: AgentTeam["status"];
+  projectIds?: string[];
+}
+
+export interface AgentTeamAssignmentInput {
+  agentId: string;
+  parentAgentId?: string | null;
+  role: string;
+  sortOrder?: number;
+}
+
 export type BackupTable =
   | "clients"
   | "providerConnections"
@@ -724,6 +825,12 @@ export type BackupTable =
   | "projectTimeEntries"
   | "localActionRuns"
   | "todayFocusItems"
+  | "agents"
+  | "agentProjectScopes"
+  | "agentRepositoryScopes"
+  | "agentTeams"
+  | "agentTeamProjectScopes"
+  | "agentTeamAssignments"
   | "clientContacts"
   | "activityLogs";
 
@@ -1294,6 +1401,75 @@ export function updateTodayFocus(
 
 export function removeTodayFocus(focusId: string): Promise<void> {
   return apiRequest<void>(`/today/focus/${focusId}`, { method: "DELETE" });
+}
+
+export function listAgents(signal?: AbortSignal): Promise<Agent[]> {
+  return apiRequest<Agent[]>("/agents", { signal });
+}
+
+export function getAgent(
+  agentId: string,
+  signal?: AbortSignal,
+): Promise<Agent> {
+  return apiRequest<Agent>(`/agents/${agentId}`, { signal });
+}
+
+export function createAgent(input: AgentInput): Promise<Agent> {
+  return apiRequest<Agent>("/agents", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateAgent(
+  agentId: string,
+  input: Partial<AgentInput>,
+): Promise<Agent> {
+  return apiRequest<Agent>(`/agents/${agentId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function archiveAgent(agentId: string): Promise<Agent> {
+  return apiRequest<Agent>(`/agents/${agentId}/archive`, { method: "POST" });
+}
+
+export function listAgentTeams(signal?: AbortSignal): Promise<AgentTeam[]> {
+  return apiRequest<AgentTeam[]>("/agent-teams", { signal });
+}
+
+export function createAgentTeam(input: AgentTeamInput): Promise<AgentTeam> {
+  return apiRequest<AgentTeam>("/agent-teams", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateAgentTeam(
+  teamId: string,
+  input: Partial<AgentTeamInput>,
+): Promise<AgentTeam> {
+  return apiRequest<AgentTeam>(`/agent-teams/${teamId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function replaceAgentTeamAssignments(
+  teamId: string,
+  assignments: AgentTeamAssignmentInput[],
+): Promise<AgentTeam> {
+  return apiRequest<AgentTeam>(`/agent-teams/${teamId}/assignments`, {
+    method: "PUT",
+    body: JSON.stringify({ assignments }),
+  });
+}
+
+export function archiveAgentTeam(teamId: string): Promise<AgentTeam> {
+  return apiRequest<AgentTeam>(`/agent-teams/${teamId}/archive`, {
+    method: "POST",
+  });
 }
 
 export function getDataStatus(signal?: AbortSignal): Promise<DataStatus> {
