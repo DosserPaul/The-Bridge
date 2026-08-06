@@ -25,10 +25,15 @@ import {
   type AgentInput,
   type Project,
 } from "@/lib/api";
+import {
+  getRuntimeModel,
+  getRuntimeProvider,
+  runtimeProviders,
+} from "@/lib/agent-runtime-catalog";
 import { cn } from "@/lib/utils";
 
 const selectClassName =
-  "h-8 w-full cursor-pointer rounded-lg border border-input bg-card px-2.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30";
+  "h-8 w-full cursor-pointer rounded-lg border border-input bg-card px-2.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-input/30";
 const textareaClassName =
   "min-h-24 w-full resize-y rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30";
 
@@ -87,9 +92,44 @@ export function AgentEditor({
     agent?.avatarDataUrl ?? null,
   );
   const [name, setName] = useState(agent?.name ?? "");
+  const [runtimeProvider, setRuntimeProvider] = useState(
+    agent?.runtime.provider ?? "",
+  );
+  const [modelId, setModelId] = useState(agent?.runtime.model ?? "");
+  const [reasoningLevel, setReasoningLevel] = useState(
+    agent?.runtime.reasoningLevel ?? "",
+  );
+  const [serviceTier, setServiceTier] = useState(
+    agent?.runtime.serviceTier ?? "",
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const selectedProvider = getRuntimeProvider(runtimeProvider);
+  const selectedModel = getRuntimeModel(runtimeProvider, modelId);
+  const hasLegacyProvider = Boolean(runtimeProvider && !selectedProvider);
+  const hasLegacyModel = Boolean(
+    modelId && (!selectedProvider || !selectedModel),
+  );
+  const hasLegacyReasoningLevel = Boolean(
+    reasoningLevel &&
+    (!selectedModel ||
+      !selectedModel.reasoningLevels.some(
+        (level) => level.value === reasoningLevel,
+      )),
+  );
+
+  function handleProviderChange(value: string) {
+    setRuntimeProvider(value);
+    setModelId("");
+    setReasoningLevel("");
+    setServiceTier("");
+  }
+
+  function handleModelChange(value: string) {
+    setModelId(value);
+    setReasoningLevel("");
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -319,44 +359,106 @@ export function AgentEditor({
               <SectionTitle
                 icon={BrainCircuit}
                 title="Runtime par défaut"
-                description="Valeurs libres pour ne pas verrouiller l’agent à un fournisseur."
+                description="Le modèle et le niveau de raisonnement s’adaptent au fournisseur choisi."
               />
               <div className="grid gap-4 rounded-xl border bg-card p-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="runtime-provider">Fournisseur</Label>
-                  <Input
+                  <select
                     id="runtime-provider"
                     name="runtimeProvider"
-                    defaultValue={agent?.runtime.provider ?? ""}
-                    placeholder="openai, anthropic…"
-                  />
+                    className={selectClassName}
+                    value={runtimeProvider}
+                    onChange={(event) =>
+                      handleProviderChange(event.target.value)
+                    }
+                  >
+                    <option value="">Choisir un fournisseur</option>
+                    {hasLegacyProvider ? (
+                      <option value={runtimeProvider}>
+                        {runtimeProvider} — valeur existante
+                      </option>
+                    ) : null}
+                    {runtimeProviders.map((provider) => (
+                      <option key={provider.value} value={provider.value}>
+                        {provider.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="model-id">Modèle</Label>
-                  <Input
+                  <select
                     id="model-id"
                     name="modelId"
-                    defaultValue={agent?.runtime.model ?? ""}
-                    placeholder="codex, claude-opus…"
-                  />
+                    className={selectClassName}
+                    value={modelId}
+                    disabled={!runtimeProvider}
+                    onChange={(event) => handleModelChange(event.target.value)}
+                  >
+                    <option value="">
+                      {runtimeProvider
+                        ? "Choisir un modèle"
+                        : "Choisir d’abord un fournisseur"}
+                    </option>
+                    {hasLegacyModel ? (
+                      <option value={modelId}>
+                        {modelId} — valeur existante
+                      </option>
+                    ) : null}
+                    {selectedProvider?.models.map((model) => (
+                      <option key={model.value} value={model.value}>
+                        {model.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="service-tier">Service tier</Label>
                   <Input
                     id="service-tier"
                     name="serviceTier"
-                    defaultValue={agent?.runtime.serviceTier ?? ""}
+                    value={serviceTier}
+                    onChange={(event) => setServiceTier(event.target.value)}
                     placeholder="priority, standard…"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="reasoning-level">Reasoning</Label>
-                  <Input
+                  <Label htmlFor="reasoning-level">Raisonnement</Label>
+                  <select
                     id="reasoning-level"
                     name="reasoningLevel"
-                    defaultValue={agent?.runtime.reasoningLevel ?? ""}
-                    placeholder="medium, high…"
-                  />
+                    className={selectClassName}
+                    value={reasoningLevel}
+                    disabled={
+                      !modelId ||
+                      (selectedModel !== undefined &&
+                        selectedModel.reasoningLevels.length === 0)
+                    }
+                    onChange={(event) => setReasoningLevel(event.target.value)}
+                  >
+                    <option value="">
+                      {!modelId
+                        ? "Choisir d’abord un modèle"
+                        : selectedModel
+                          ? selectedModel.reasoningLevels.length
+                            ? selectedModel.defaultReasoningLevel
+                              ? `Par défaut (${selectedModel.defaultReasoningLevel})`
+                              : "Valeur par défaut"
+                            : "Non disponible pour ce modèle"
+                          : "Valeur personnalisée"}
+                    </option>
+                    {hasLegacyReasoningLevel ? (
+                      <option value={reasoningLevel}>
+                        {reasoningLevel} — valeur existante
+                      </option>
+                    ) : null}
+                    {selectedModel?.reasoningLevels.map((level) => (
+                      <option key={level.value} value={level.value}>
+                        {level.label} ({level.value})
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="space-y-2 sm:col-span-2">
                   <Label htmlFor="capabilities">Capabilities</Label>
