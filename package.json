@@ -15,8 +15,13 @@
     "db:postgres:stop": "docker compose stop postgres",
     "db:postgres:logs": "docker compose logs -f postgres",
     "build": "pnpm -r build",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "lint": "pnpm -r lint",
     "test": "pnpm --filter api test --runInBand",
     "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.6"
   }
 }
