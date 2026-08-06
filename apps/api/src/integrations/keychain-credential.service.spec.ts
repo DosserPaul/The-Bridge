@@ -20,6 +20,21 @@ jest.mock('node:child_process', () => ({
 import { KeychainCredentialService } from './keychain-credential.service';
 
 describe('KeychainCredentialService', () => {
+  const platformDescriptor = Object.getOwnPropertyDescriptor(
+    process,
+    'platform',
+  );
+
+  beforeAll(() => {
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+  });
+
+  afterAll(() => {
+    if (platformDescriptor) {
+      Object.defineProperty(process, 'platform', platformDescriptor);
+    }
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockSetPassword.mockResolvedValue(undefined);
