@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: the_bridge
+      POSTGRES_USER: bridge
+      POSTGRES_PASSWORD: bridge
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bridge -d the_bridge"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - the_bridge_postgres:/var/lib/postgresql
+
+volumes:
+  the_bridge_postgres:

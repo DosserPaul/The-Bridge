@@ -1,6 +1,7 @@
 {
   "name": "claude-hub",
   "version": "0.0.0",
+  "license": "MIT",
   "private": true,
   "packageManager": "pnpm@11.10.0",
   "engines": {
@@ -10,9 +11,17 @@
     "dev": "pnpm --parallel --filter web --filter api dev",
     "dev:web": "pnpm --filter web dev",
     "dev:api": "pnpm --filter api dev",
+    "db:postgres:start": "docker compose up -d postgres",
+    "db:postgres:stop": "docker compose stop postgres",
+    "db:postgres:logs": "docker compose logs -f postgres",
     "build": "pnpm -r build",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "lint": "pnpm -r lint",
     "test": "pnpm --filter api test --runInBand",
     "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.6"
   }
 }

@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, parse, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { detectProviderFromRemote } from '../repositories/git-remote';
 
 const execFileAsync = promisify(execFile);
 
@@ -58,20 +59,6 @@ const value = prompt.includes('username')
   : process.env.THE_BRIDGE_GIT_PASSWORD;
 process.stdout.write(value ?? '');
 `;
-
-function detectProvider(remoteUrl: string | null): RepositoryProvider {
-  const normalizedUrl = remoteUrl?.toLowerCase();
-
-  if (normalizedUrl?.includes('github')) {
-    return 'github';
-  }
-
-  if (normalizedUrl?.includes('gitlab')) {
-    return 'gitlab';
-  }
-
-  return 'unknown';
-}
 
 function getErrorCode(error: unknown): unknown {
   if (typeof error !== 'object' || error === null) return undefined;
@@ -169,7 +156,7 @@ export class GitService {
       canonicalPath,
       name: basename(canonicalPath),
       remoteUrl,
-      provider: detectProvider(remoteUrl),
+      provider: detectProviderFromRemote(remoteUrl),
       state: {
         availability: 'available',
         branch,

@@ -7,6 +7,7 @@ import {
   Bell,
   Bot,
   FolderKanban,
+  HardDrive,
   History,
   Inbox,
   Lightbulb,
@@ -19,6 +20,7 @@ import {
   Zap,
 } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
+import { ProjectHeaderActions } from "@/components/projects/project-header-actions";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const mobileNavigation = [
@@ -31,6 +33,7 @@ const mobileNavigation = [
   { label: "Security", icon: ShieldCheck },
   { label: "Activity", icon: History, href: "/activity" },
   { label: "Integrations", icon: PlugZap, href: "/settings/integrations" },
+  { label: "Data", icon: HardDrive, href: "/settings/data" },
 ];
 
 function breadcrumbs(pathname: string): string[] {
@@ -44,11 +47,23 @@ function breadcrumbs(pathname: string): string[] {
   }
   if (pathname.startsWith("/clients")) return ["Workspace", "Clients"];
   if (pathname === "/projects/new") return ["Workspace", "Projects", "New"];
+  if (pathname.endsWith("/edit") && pathname.startsWith("/projects/")) {
+    return ["Workspace", "Projects", "Edit"];
+  }
+  if (
+    pathname.endsWith("/repositories/new") &&
+    pathname.startsWith("/projects/")
+  ) {
+    return ["Workspace", "Projects", "Repository", "New"];
+  }
   if (pathname.startsWith("/projects/")) {
     return ["Workspace", "Projects", "Overview"];
   }
   if (pathname.startsWith("/settings/integrations")) {
     return ["Workspace", "Settings", "Integrations"];
+  }
+  if (pathname.startsWith("/settings/data")) {
+    return ["Workspace", "Settings", "Data"];
   }
   return ["Workspace", "Projects"];
 }
@@ -106,6 +121,8 @@ export function TopBar() {
             Local API
           </span>
         </div>
+
+        <ProjectHeaderActions pathname={pathname} />
 
         <button
           type="button"

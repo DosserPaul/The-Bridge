@@ -6,10 +6,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import type { Knex } from 'knex';
+import { isUniqueConstraintError } from '../database/database-error';
 import { DatabaseService } from '../database/database.service';
-import { isUniqueConstraintError } from '../database/sqlite-error';
 import { RemoteRepositoriesService } from '../integrations/remote-repositories.service';
+import { RepositoryCatalogService } from '../repositories/repository-catalog.service';
 import type { CreateProjectDto } from './dto/create-project.dto';
+import type { CreateRepositoryDto } from './dto/create-repository.dto';
+import type { UpdateProjectDto } from './dto/update-project.dto';
 import type { ValidateRepositoryPathDto } from './dto/validate-repository-path.dto';
 import { GitService, type RepositoryInspection } from './git.service';
 import type {
@@ -37,21 +41,12 @@ interface ProjectRow {
   updated_at: string;
 }
 
-interface RepositoryRow {
-  id: string;
-  project_id: string;
-  name: string;
-  local_path: string;
-  remote_url: string | null;
-  provider: 'github' | 'gitlab' | 'unknown';
-  created_at: string;
-  updated_at: string;
-}
-
 interface ClientRow {
   id: string;
   name: string;
 }
+
+type RepositoryInput = CreateProjectDto | CreateRepositoryDto;
 
 @Injectable()
 export class ProjectsService {
@@ -59,75 +54,65 @@ export class ProjectsService {
     private readonly database: DatabaseService,
     private readonly git: GitService,
     private readonly remoteRepositories: RemoteRepositoriesService,
+    private readonly repositoryCatalog: RepositoryCatalogService,
   ) {}
 
   async create(input: CreateProjectDto): Promise<ProjectView> {
     this.validateDates(input);
-    if (input.clientId) this.requireClient(input.clientId);
+    if (input.clientId) await this.requireClient(input.clientId);
     const inspection = await this.prepareRepository(input);
+    const association = await this.repositoryCatalog.validateConnection(
+      input.connectionId,
+      inspection,
+    );
     const now = new Date().toISOString();
     const projectId = randomUUID();
     const repositoryId = randomUUID();
 
     try {
-      this.database.connection.transaction(() => {
+      await this.database.connection.transaction(async (transaction) => {
         const clientId = input.clientId
-          ? this.requireClient(input.clientId)
+          ? await this.requireClient(input.clientId, transaction)
           : input.clientName
-            ? this.findOrCreateClient(input.clientName, now)
+            ? await this.findOrCreateClient(input.clientName, now, transaction)
             : null;
 
-        this.database.connection
-          .prepare(
-            `INSERT INTO projects (
-               id, client_id, name, logo_data_url, description, status,
-               priority, types_json, technologies_json, start_date, deadline,
-               follow_up_date, follow_up_note, created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .run(
-            projectId,
-            clientId,
-            input.name,
-            input.logoDataUrl ?? null,
-            input.description ?? null,
-            input.status ?? 'active',
-            input.priority ?? 'normal',
-            JSON.stringify(input.types ?? []),
-            JSON.stringify(input.technologies ?? []),
-            input.startDate ?? null,
-            input.deadline ?? null,
-            input.followUpDate ?? null,
-            input.followUpNote ?? null,
-            now,
-            now,
-          );
+        await transaction('projects').insert({
+          id: projectId,
+          client_id: clientId,
+          name: input.name,
+          logo_data_url: input.logoDataUrl ?? null,
+          description: input.description ?? null,
+          status: input.status ?? 'active',
+          priority: input.priority ?? 'normal',
+          types_json: JSON.stringify(input.types ?? []),
+          technologies_json: JSON.stringify(input.technologies ?? []),
+          start_date: input.startDate ?? null,
+          deadline: input.deadline ?? null,
+          follow_up_date: input.followUpDate ?? null,
+          follow_up_note: input.followUpNote ?? null,
+          created_at: now,
+          updated_at: now,
+        });
 
-        this.database.connection
-          .prepare(
-            `INSERT INTO repositories (
-               id, project_id, name, local_path, remote_url, provider,
-               created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .run(
-            repositoryId,
-            projectId,
-            inspection.name,
-            inspection.canonicalPath,
-            inspection.remoteUrl,
-            inspection.provider,
-            now,
-            now,
-          );
-      })();
+        await transaction('repositories').insert({
+          id: repositoryId,
+          project_id: projectId,
+          connection_id: association.connectionId,
+          name: inspection.name,
+          local_path: inspection.canonicalPath,
+          remote_url: inspection.remoteUrl,
+          provider: association.provider,
+          created_at: now,
+          updated_at: now,
+        });
+      });
     } catch (error) {
       if (isUniqueConstraintError(error, 'repositories.local_path')) {
         throw new ConflictException(
           'Ce repository est déjà rattaché à un projet.',
         );
       }
-
       throw error;
     }
 
@@ -139,7 +124,7 @@ export class ProjectsService {
   ): Promise<RepositoryPathValidation> {
     if (input.repositoryMode === 'local') {
       const inspection = await this.git.inspectRepository(input.repositoryPath);
-      this.assertRepositoryPathAvailable(inspection.canonicalPath);
+      await this.assertRepositoryPathAvailable(inspection.canonicalPath);
 
       return {
         repositoryMode: input.repositoryMode,
@@ -170,7 +155,7 @@ export class ProjectsService {
         ? resolve(input.repositoryPath, input.cloneDirectoryName!)
         : input.repositoryPath;
     const resolvedPath = await this.git.validateCloneDestination(requestedPath);
-    this.assertRepositoryPathAvailable(resolvedPath);
+    await this.assertRepositoryPathAvailable(resolvedPath);
 
     return {
       repositoryMode: input.repositoryMode,
@@ -179,8 +164,145 @@ export class ProjectsService {
     };
   }
 
+  async findAll(): Promise<ProjectView[]> {
+    const projects = await this.selectProjects();
+    return Promise.all(projects.map((project) => this.toProjectView(project)));
+  }
+
+  async findOne(
+    projectId: string,
+    freshInspection?: RepositoryInspection,
+  ): Promise<ProjectView> {
+    const project = await this.selectProject(projectId);
+    if (!project) throw new NotFoundException('Projet introuvable.');
+    return this.toProjectView(project, freshInspection);
+  }
+
+  async update(
+    projectId: string,
+    input: UpdateProjectDto,
+  ): Promise<ProjectView> {
+    const project = await this.selectProject(projectId);
+    if (!project) throw new NotFoundException('Projet introuvable.');
+    if (typeof input.clientId === 'string') {
+      await this.requireClient(input.clientId);
+    }
+
+    const startDate =
+      input.startDate === undefined ? project.start_date : input.startDate;
+    const deadline =
+      input.deadline === undefined ? project.deadline : input.deadline;
+    const followUpDate =
+      input.followUpDate === undefined
+        ? project.follow_up_date
+        : input.followUpDate;
+    const followUpNote =
+      input.followUpNote === undefined
+        ? project.follow_up_note
+        : input.followUpNote;
+    this.validateDateValues(startDate, deadline, followUpDate, followUpNote);
+
+    const patch: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
+    if (input.name !== undefined) patch.name = input.name;
+    if (input.logoDataUrl !== undefined)
+      patch.logo_data_url = input.logoDataUrl;
+    if (input.description !== undefined) patch.description = input.description;
+    if (input.status !== undefined) patch.status = input.status;
+    if (input.priority !== undefined) patch.priority = input.priority;
+    if (input.types !== undefined)
+      patch.types_json = JSON.stringify(input.types);
+    if (input.technologies !== undefined)
+      patch.technologies_json = JSON.stringify(input.technologies);
+    if (input.startDate !== undefined) patch.start_date = input.startDate;
+    if (input.deadline !== undefined) patch.deadline = input.deadline;
+    if (input.followUpDate !== undefined)
+      patch.follow_up_date = input.followUpDate;
+    if (input.followUpNote !== undefined)
+      patch.follow_up_note = input.followUpNote;
+    if (input.clientId !== undefined) patch.client_id = input.clientId;
+
+    await this.database
+      .connection('projects')
+      .where({ id: projectId })
+      .update(patch);
+    return this.findOne(projectId);
+  }
+
+  archive(projectId: string): Promise<ProjectView> {
+    return this.update(projectId, { status: 'archived' });
+  }
+
+  async addRepository(
+    projectId: string,
+    input: CreateRepositoryDto,
+  ): Promise<ProjectView> {
+    if (!(await this.selectProject(projectId))) {
+      throw new NotFoundException('Projet introuvable.');
+    }
+    const inspection = await this.prepareRepository(input);
+    const association = await this.repositoryCatalog.validateConnection(
+      input.connectionId,
+      inspection,
+    );
+    const now = new Date().toISOString();
+    try {
+      await this.database.connection('repositories').insert({
+        id: randomUUID(),
+        project_id: projectId,
+        connection_id: association.connectionId,
+        name: inspection.name,
+        local_path: inspection.canonicalPath,
+        remote_url: inspection.remoteUrl,
+        provider: association.provider,
+        created_at: now,
+        updated_at: now,
+      });
+      await this.database
+        .connection('projects')
+        .where({ id: projectId })
+        .update({ updated_at: now });
+    } catch (error) {
+      if (isUniqueConstraintError(error, 'repositories.local_path')) {
+        throw new ConflictException(
+          'Ce repository est déjà rattaché à un projet.',
+        );
+      }
+      throw error;
+    }
+    return this.findOne(projectId, inspection);
+  }
+
+  async removeRepository(
+    projectId: string,
+    repositoryId: string,
+  ): Promise<void> {
+    await this.repositoryCatalog.getRecord(projectId, repositoryId);
+    await this.database
+      .connection('repositories')
+      .where({ id: repositoryId, project_id: projectId })
+      .delete();
+    await this.database
+      .connection('projects')
+      .where({ id: projectId })
+      .update({ updated_at: new Date().toISOString() });
+  }
+
+  associateRepositoryConnection(
+    projectId: string,
+    repositoryId: string,
+    connectionId: string | null,
+  ): Promise<RepositoryView> {
+    return this.repositoryCatalog.associateConnection(
+      projectId,
+      repositoryId,
+      connectionId,
+    );
+  }
+
   private async prepareRepository(
-    input: CreateProjectDto,
+    input: RepositoryInput,
   ): Promise<RepositoryInspection> {
     const mode = input.repositoryMode ?? 'local';
     if (mode === 'local') {
@@ -196,7 +318,7 @@ export class ProjectsService {
     const repositoryPath = await this.git.validateCloneDestination(
       input.repositoryPath,
     );
-    this.assertRepositoryPathAvailable(repositoryPath);
+    await this.assertRepositoryPathAvailable(repositoryPath);
 
     const remote =
       mode === 'existing'
@@ -220,7 +342,7 @@ export class ProjectsService {
     }
   }
 
-  private prepareExistingRemote(input: CreateProjectDto) {
+  private prepareExistingRemote(input: RepositoryInput) {
     if (!input.provider || !input.connectionId || !input.remoteRepositoryId) {
       throw new BadRequestException(
         'Sélectionnez un repository distant avant de continuer.',
@@ -233,7 +355,7 @@ export class ProjectsService {
     );
   }
 
-  private prepareNewRemote(input: CreateProjectDto) {
+  private prepareNewRemote(input: RepositoryInput) {
     if (!input.provider || !input.connectionId || !input.remoteRepositoryName) {
       throw new BadRequestException('Indiquez le nom du repository à créer.');
     }
@@ -249,11 +371,14 @@ export class ProjectsService {
     );
   }
 
-  private assertRepositoryPathAvailable(repositoryPath: string): void {
-    const existing = this.database.connection
-      .prepare('SELECT id FROM repositories WHERE local_path IN (?, ?) LIMIT 1')
-      .get(repositoryPath, resolve(repositoryPath)) as
-      { id: string } | undefined;
+  private async assertRepositoryPathAvailable(
+    repositoryPath: string,
+  ): Promise<void> {
+    const existing = await this.database
+      .connection<{ id: string }>('repositories')
+      .select('id')
+      .whereIn('local_path', [repositoryPath, resolve(repositoryPath)])
+      .first();
     if (existing) {
       throw new ConflictException(
         'Cette destination locale est déjà rattachée à un projet.',
@@ -262,147 +387,95 @@ export class ProjectsService {
   }
 
   private validateDates(input: CreateProjectDto): void {
-    if (input.startDate && input.deadline && input.deadline < input.startDate) {
+    this.validateDateValues(
+      input.startDate,
+      input.deadline,
+      input.followUpDate,
+      input.followUpNote,
+    );
+  }
+
+  private validateDateValues(
+    startDate: string | null | undefined,
+    deadline: string | null | undefined,
+    followUpDate: string | null | undefined,
+    followUpNote: string | null | undefined,
+  ): void {
+    if (startDate && deadline && deadline < startDate) {
       throw new BadRequestException(
         'La deadline doit être postérieure à la date de début.',
       );
     }
-    if (input.followUpNote && !input.followUpDate) {
+    if (followUpNote && !followUpDate) {
       throw new BadRequestException(
         'Ajoutez une date au follow-up ou retirez sa note.',
       );
     }
   }
 
-  async findAll(): Promise<ProjectView[]> {
-    const projects = this.selectProjects();
-    return Promise.all(projects.map((project) => this.toProjectView(project)));
-  }
-
-  async findOne(
-    projectId: string,
-    freshInspection?: RepositoryInspection,
-  ): Promise<ProjectView> {
-    const project = this.selectProject(projectId);
-
-    if (!project) {
-      throw new NotFoundException('Projet introuvable.');
-    }
-
-    return this.toProjectView(project, freshInspection);
-  }
-
-  private findOrCreateClient(name: string, now: string): string {
-    const existingClient = this.database.connection
-      .prepare('SELECT id, name FROM clients WHERE name = ? COLLATE NOCASE')
-      .get(name) as ClientRow | undefined;
-
-    if (existingClient) {
-      return existingClient.id;
-    }
+  private async findOrCreateClient(
+    name: string,
+    now: string,
+    transaction: Knex.Transaction,
+  ): Promise<string> {
+    const existingClient = await transaction<ClientRow>('clients')
+      .select('id', 'name')
+      .whereRaw('LOWER(name) = LOWER(?)', [name])
+      .first();
+    if (existingClient) return existingClient.id;
 
     const clientId = randomUUID();
-    this.database.connection
-      .prepare(
-        `INSERT INTO clients (id, name, created_at, updated_at)
-         VALUES (?, ?, ?, ?)`,
-      )
-      .run(clientId, name, now, now);
-
+    await transaction('clients').insert({
+      id: clientId,
+      name,
+      created_at: now,
+      updated_at: now,
+    });
     return clientId;
   }
 
-  private requireClient(clientId: string): string {
-    const client = this.database.connection
-      .prepare('SELECT id, name FROM clients WHERE id = ?')
-      .get(clientId) as ClientRow | undefined;
-
-    if (!client) {
-      throw new NotFoundException('Client introuvable.');
-    }
-
+  private async requireClient(
+    clientId: string,
+    connection: Knex | Knex.Transaction = this.database.connection,
+  ): Promise<string> {
+    const client = await connection<ClientRow>('clients')
+      .select('id', 'name')
+      .where({ id: clientId })
+      .first();
+    if (!client) throw new NotFoundException('Client introuvable.');
     return client.id;
   }
 
-  private selectProjects(): ProjectRow[] {
-    return this.database.connection
-      .prepare(
-        `SELECT
-           projects.id,
-           projects.name,
-           projects.logo_data_url,
-           projects.description,
-           projects.status,
-           projects.priority,
-           projects.types_json,
-           projects.technologies_json,
-           projects.start_date,
-           projects.deadline,
-           projects.follow_up_date,
-           projects.follow_up_note,
-           projects.client_id,
-           clients.name AS client_name,
-           projects.created_at,
-           projects.updated_at
-         FROM projects
-         LEFT JOIN clients ON clients.id = projects.client_id
-         ORDER BY projects.updated_at DESC`,
+  private async selectProjects(): Promise<ProjectRow[]> {
+    return this.database
+      .connection<ProjectRow>('projects')
+      .leftJoin('clients', 'clients.id', 'projects.client_id')
+      .select(
+        'projects.*',
+        this.database.connection.raw('clients.name AS client_name'),
       )
-      .all() as ProjectRow[];
+      .orderBy('projects.updated_at', 'desc');
   }
 
-  private selectProject(projectId: string): ProjectRow | undefined {
-    return this.database.connection
-      .prepare(
-        `SELECT
-           projects.id,
-           projects.name,
-           projects.logo_data_url,
-           projects.description,
-           projects.status,
-           projects.priority,
-           projects.types_json,
-           projects.technologies_json,
-           projects.start_date,
-           projects.deadline,
-           projects.follow_up_date,
-           projects.follow_up_note,
-           projects.client_id,
-           clients.name AS client_name,
-           projects.created_at,
-           projects.updated_at
-         FROM projects
-         LEFT JOIN clients ON clients.id = projects.client_id
-         WHERE projects.id = ?`,
+  private selectProject(projectId: string): Promise<ProjectRow | undefined> {
+    return this.database
+      .connection<ProjectRow>('projects')
+      .leftJoin('clients', 'clients.id', 'projects.client_id')
+      .select(
+        'projects.*',
+        this.database.connection.raw('clients.name AS client_name'),
       )
-      .get(projectId) as ProjectRow | undefined;
-  }
-
-  private selectRepositories(projectId: string): RepositoryRow[] {
-    return this.database.connection
-      .prepare(
-        `SELECT
-           id, project_id, name, local_path, remote_url, provider,
-           created_at, updated_at
-         FROM repositories
-         WHERE project_id = ?
-         ORDER BY created_at ASC`,
-      )
-      .all(projectId) as RepositoryRow[];
+      .where('projects.id', projectId)
+      .first();
   }
 
   private async toProjectView(
     project: ProjectRow,
     freshInspection?: RepositoryInspection,
   ): Promise<ProjectView> {
-    const repositories = this.selectRepositories(project.id);
-    const repositoryViews = await Promise.all(
-      repositories.map(async (repository, index) =>
-        this.toRepositoryView(
-          repository,
-          index === 0 ? freshInspection : undefined,
-        ),
-      ),
+    const repositoryViews = await this.repositoryCatalog.listProjectSnapshots(
+      project.id,
+      freshInspection,
     );
 
     return {
@@ -438,24 +511,5 @@ export class ProjectsService {
     } catch {
       return [];
     }
-  }
-
-  private async toRepositoryView(
-    repository: RepositoryRow,
-    freshInspection?: RepositoryInspection,
-  ): Promise<RepositoryView> {
-    return {
-      id: repository.id,
-      name: repository.name,
-      localPath: repository.local_path,
-      remoteUrl: repository.remote_url,
-      provider: repository.provider,
-      state:
-        freshInspection?.canonicalPath === repository.local_path
-          ? freshInspection.state
-          : await this.git.observeRepository(repository.local_path),
-      createdAt: repository.created_at,
-      updatedAt: repository.updated_at,
-    };
   }
 }

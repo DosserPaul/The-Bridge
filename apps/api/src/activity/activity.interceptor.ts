@@ -8,8 +8,8 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request, Response } from 'express';
-import type { Observable } from 'rxjs';
-import { tap } from 'rxjs/operators';
+import { from, type Observable, throwError } from 'rxjs';
+import { catchError, map, mergeMap } from 'rxjs/operators';
 import {
   ACTIVITY_ACTION_KEY,
   SKIP_ACTIVITY_KEY,
@@ -50,6 +50,7 @@ function responseLabel(value: unknown): string | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   if (typeof record.name === 'string') return record.name;
+  if (typeof record.title === 'string') return record.title;
   if (
     record.account &&
     typeof record.account === 'object' &&
@@ -109,12 +110,12 @@ export class ActivityInterceptor implements NestInterceptor {
     };
 
     return next.handle().pipe(
-      tap({
-        next: (body: unknown) => {
-          const bodyRecord =
-            body && typeof body === 'object' && !Array.isArray(body)
-              ? (body as Record<string, unknown>)
-              : null;
+      mergeMap((body: unknown) => {
+        const bodyRecord =
+          body && typeof body === 'object' && !Array.isArray(body)
+            ? (body as Record<string, unknown>)
+            : null;
+        return from(
           this.activity.record({
             ...common,
             status: 'success',
@@ -125,18 +126,20 @@ export class ActivityInterceptor implements NestInterceptor {
             response: body,
             httpStatus: response.statusCode,
             durationMs: performance.now() - startedAt,
-          });
-        },
-        error: (error: unknown) => {
-          const status =
-            error instanceof HttpException
-              ? error.getStatus()
-              : typeof error === 'object' &&
-                  error !== null &&
-                  'status' in error &&
-                  typeof error.status === 'number'
-                ? error.status
-                : 500;
+          }),
+        ).pipe(map(() => body));
+      }),
+      catchError((error: unknown) => {
+        const status =
+          error instanceof HttpException
+            ? error.getStatus()
+            : typeof error === 'object' &&
+                error !== null &&
+                'status' in error &&
+                typeof error.status === 'number'
+              ? error.status
+              : 500;
+        return from(
           this.activity.record({
             ...common,
             status: 'error',
@@ -151,8 +154,8 @@ export class ActivityInterceptor implements NestInterceptor {
                 : error,
             httpStatus: status,
             durationMs: performance.now() - startedAt,
-          });
-        },
+          }),
+        ).pipe(mergeMap(() => throwError(() => error)));
       }),
     );
   }

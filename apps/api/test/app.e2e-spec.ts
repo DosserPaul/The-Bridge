@@ -18,6 +18,7 @@ describe('AppController (e2e)', () => {
 
   beforeEach(async () => {
     database = new DatabaseService(':memory:');
+    await database.initialize();
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })

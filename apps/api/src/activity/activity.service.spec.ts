@@ -5,13 +5,14 @@ describe('ActivityService', () => {
   let database: DatabaseService;
   let activity: ActivityService;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     database = new DatabaseService(':memory:');
+    await database.initialize();
     activity = new ActivityService(database);
   });
 
-  afterEach(() => {
-    database.onModuleDestroy();
+  afterEach(async () => {
+    await database.onModuleDestroy();
   });
 
   it('redacts secrets and replaces image data with metadata', () => {
@@ -33,8 +34,8 @@ describe('ActivityService', () => {
     });
   });
 
-  it('records and retrieves full event details', () => {
-    activity.record({
+  it('records and retrieves full event details', async () => {
+    await activity.record({
       requestId: 'request-1',
       category: 'clients',
       action: 'client.updated',
@@ -50,7 +51,7 @@ describe('ActivityService', () => {
       durationMs: 12.4,
     });
 
-    const result = activity.list({ limit: 50, category: 'clients' });
+    const result = await activity.list({ limit: 50, category: 'clients' });
 
     expect(result).toMatchObject({
       total: 1,
@@ -63,20 +64,20 @@ describe('ActivityService', () => {
         }),
       ],
     });
-    expect(activity.findOne(result.items[0].id)).toMatchObject({
+    await expect(activity.findOne(result.items[0].id)).resolves.toMatchObject({
       request: { body: { status: 'active' } },
       response: { id: 'client-1', name: 'Juris Global' },
       error: null,
     });
   });
 
-  it('filters events and paginates with an opaque cursor', () => {
+  it('filters events and paginates with an opaque cursor', async () => {
     for (const [index, category] of [
       'clients',
       'projects',
       'clients',
     ].entries()) {
-      activity.record({
+      await activity.record({
         requestId: `request-${index}`,
         category: category as 'clients' | 'projects',
         action: `${category}.viewed`,
@@ -88,8 +89,8 @@ describe('ActivityService', () => {
       });
     }
 
-    const firstPage = activity.list({ limit: 1, category: 'clients' });
-    const secondPage = activity.list({
+    const firstPage = await activity.list({ limit: 1, category: 'clients' });
+    const secondPage = await activity.list({
       limit: 1,
       category: 'clients',
       cursor: firstPage.nextCursor ?? undefined,

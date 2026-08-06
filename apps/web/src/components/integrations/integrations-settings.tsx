@@ -304,9 +304,9 @@ export function IntegrationsSettings() {
                   />
                 </div>
                 <p className="text-[11px] leading-relaxed text-muted-foreground">
-                  Aucun droit supplémentaire n’est requis pour vérifier votre
-                  identité. L’accès futur aux repositories dépendra des droits
-                  choisis sur ce token.
+                  Pour les repositories privés, incluez chaque repository à
+                  piloter et accordez Actions en lecture. Administration en
+                  écriture n’est nécessaire que pour créer des repositories.
                 </p>
               </div>
 

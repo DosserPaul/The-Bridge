@@ -8,6 +8,7 @@ import {
   CheckSquare2,
   FolderKanban,
   History,
+  HardDrive,
   Inbox,
   Lightbulb,
   Plus,
@@ -64,6 +65,12 @@ const navigation: NavigationItem[] = [
     icon: Settings2,
     href: "/settings/integrations",
     match: (pathname) => pathname.startsWith("/settings/integrations"),
+  },
+  {
+    label: "Data",
+    icon: HardDrive,
+    href: "/settings/data",
+    match: (pathname) => pathname.startsWith("/settings/data"),
   },
 ];
 
@@ -148,7 +155,11 @@ export function SidebarNavigation() {
   useEffect(() => {
     const controller = new AbortController();
     void listProjects(controller.signal, { silentActivity: true })
-      .then((data) => setProjects(data.slice(0, 4)))
+      .then((data) =>
+        setProjects(
+          data.filter((project) => project.status !== "archived").slice(0, 4),
+        ),
+      )
       .catch(() => undefined);
     return () => controller.abort();
   }, []);

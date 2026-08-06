@@ -7,6 +7,7 @@ export interface ClientSummary {
 
 export interface RepositoryView {
   id: string;
+  connectionId: string | null;
   name: string;
   localPath: string;
   remoteUrl: string | null;

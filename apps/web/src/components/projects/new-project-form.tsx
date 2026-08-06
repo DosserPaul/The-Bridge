@@ -959,10 +959,10 @@ export function NewProjectForm({
                           }
                           placeholder={
                             repositoryMode === "local"
-                              ? "/Users/paul/Projects/JurisLive"
+                              ? "/path/to/projects/jurislive"
                               : cloneDestinationMode === "exact"
-                                ? "/Users/paul/Projects/jurislive"
-                                : "/Users/paul/Projects"
+                                ? "/path/to/projects/jurislive"
+                                : "/path/to/projects"
                           }
                           className="pl-9 font-mono text-xs"
                         />

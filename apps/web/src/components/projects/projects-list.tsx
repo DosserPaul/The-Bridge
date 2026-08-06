@@ -160,6 +160,7 @@ export function ProjectsList() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
 
   const loadProjects = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -213,6 +214,11 @@ export function ProjectsList() {
       ).length,
     };
   }, [projects]);
+  const visibleProjects = projects.filter((project) =>
+    showArchived
+      ? project.status === "archived"
+      : project.status !== "archived",
+  );
 
   return (
     <div className="space-y-8">
@@ -308,18 +314,50 @@ export function ProjectsList() {
       {!isLoading && !error && projects.length > 0 ? (
         <section>
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="font-heading text-sm font-semibold">
-              Tous les projets
-            </h2>
-            <p className="text-xs text-muted-foreground">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className={cn(
+                  "cursor-pointer rounded-lg px-3 py-1.5 text-xs font-medium",
+                  !showArchived
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted",
+                )}
+                onClick={() => setShowArchived(false)}
+              >
+                En cours
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "cursor-pointer rounded-lg px-3 py-1.5 text-xs font-medium",
+                  showArchived
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted",
+                )}
+                onClick={() => setShowArchived(true)}
+              >
+                Archives
+              </button>
+            </div>
+            <p className="hidden text-xs text-muted-foreground sm:block">
               Actualisé {formatRelativeDate(new Date().toISOString())}
             </p>
           </div>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {projects.map((project) => (
+            {visibleProjects.map((project) => (
               <ProjectCard key={project.id} project={project} />
             ))}
           </div>
+          {!visibleProjects.length ? (
+            <Card className="border-dashed">
+              <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                {showArchived
+                  ? "Aucun projet archivé."
+                  : "Aucun projet en cours."}
+              </CardContent>
+            </Card>
+          ) : null}
         </section>
       ) : null}
     </div>
