@@ -2,6 +2,7 @@ export const localActionNames = [
   'editor',
   'terminal',
   'finder',
+  'remote',
   'dev',
   'test',
   'lint',

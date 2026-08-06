@@ -541,6 +541,7 @@ export type LocalActionName =
   | "editor"
   | "terminal"
   | "finder"
+  | "remote"
   | "dev"
   | "test"
   | "lint"
@@ -736,8 +737,14 @@ export function listProjects(
 export function getProject(
   projectId: string,
   signal?: AbortSignal,
+  options?: { silentActivity?: boolean },
 ): Promise<Project> {
-  return apiRequest<Project>(`/projects/${projectId}`, { signal });
+  return apiRequest<Project>(`/projects/${projectId}`, {
+    signal,
+    headers: options?.silentActivity
+      ? { "X-Activity-Silent": "true" }
+      : undefined,
+  });
 }
 
 export function createProject(input: CreateProjectInput): Promise<Project> {

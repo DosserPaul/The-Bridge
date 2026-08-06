@@ -13,6 +13,7 @@ import {
   RepositoryCatalogService,
   type RepositoryRecord,
 } from '../repositories/repository-catalog.service';
+import { parseGitRemote } from '../repositories/git-remote';
 import {
   localActionNames,
   type LocalActionName,
@@ -209,6 +210,7 @@ export class ProjectLocalActionsService implements OnModuleInit {
       return this.guiCommand('editor', repository.local_path);
     if (action === 'terminal')
       return this.guiCommand('terminal', repository.local_path);
+    if (action === 'remote') return this.remoteCommand(repository.remote_url);
 
     const packageManager = await this.detectPackageManager(
       repository.local_path,
@@ -306,6 +308,39 @@ export class ProjectLocalActionsService implements OnModuleInit {
       executable: 'x-terminal-emulator',
       arguments: ['--working-directory', path],
       label: 'Ouvrir dans Terminal',
+    };
+  }
+
+  private remoteCommand(remoteUrl: string | null): CommandDefinition {
+    const remote = parseGitRemote(remoteUrl);
+    if (!remote) {
+      throw new BadRequestException(
+        'Aucun repository distant valide n’est configuré.',
+      );
+    }
+
+    const webUrl = new URL(`https://${remote.hostname}`);
+    webUrl.pathname = remote.projectPath;
+    const target = webUrl.toString();
+
+    if (process.platform === 'darwin') {
+      return {
+        executable: 'open',
+        arguments: [target],
+        label: 'Ouvrir le repository distant',
+      };
+    }
+    if (process.platform === 'win32') {
+      return {
+        executable: 'explorer.exe',
+        arguments: [target],
+        label: 'Ouvrir le repository distant',
+      };
+    }
+    return {
+      executable: 'xdg-open',
+      arguments: [target],
+      label: 'Ouvrir le repository distant',
     };
   }
 

@@ -20,6 +20,7 @@ import {
   Zap,
 } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
+import { ProjectHeaderActions } from "@/components/projects/project-header-actions";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const mobileNavigation = [
@@ -120,6 +121,8 @@ export function TopBar() {
             Local API
           </span>
         </div>
+
+        <ProjectHeaderActions pathname={pathname} />
 
         <button
           type="button"

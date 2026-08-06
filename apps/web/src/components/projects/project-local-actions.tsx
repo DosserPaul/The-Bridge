@@ -1,7 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { FolderOpen, Play, Square, TerminalSquare } from "lucide-react";
+import {
+  FolderOpen,
+  GitBranch,
+  Play,
+  Square,
+  TerminalSquare,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,16 +19,10 @@ import {
   type LocalActionRun,
   type Repository,
 } from "@/lib/api";
-
-const actions: Array<[LocalActionName, string]> = [
-  ["dev", "Dev"],
-  ["test", "Tests"],
-  ["lint", "Lint"],
-  ["build", "Build"],
-  ["coverage", "Coverage"],
-  ["audit", "Audit"],
-  ["outdated", "Dépendances"],
-];
+import {
+  projectCommandActions,
+  projectOpenActions,
+} from "@/lib/project-local-actions";
 
 export function ProjectLocalActionsPanel({
   projectId,
@@ -94,31 +94,41 @@ export function ProjectLocalActionsPanel({
           </CardHeader>
           <CardContent className="space-y-4 pt-4">
             <div className="flex flex-wrap gap-2">
-              {(["editor", "terminal", "finder"] as const).map((action) => (
+              {projectOpenActions.map(({ action, label }) => (
                 <Button
                   key={action}
                   variant="outline"
                   size="sm"
                   onClick={() => void launch(repository.id, action)}
-                  disabled={pending !== null}
+                  disabled={
+                    pending !== null ||
+                    (action === "remote"
+                      ? !repository.remoteUrl
+                      : repository.state.availability !== "available")
+                  }
                 >
-                  {action === "finder" ? <FolderOpen /> : <TerminalSquare />}
-                  {action === "editor"
-                    ? "VS Code"
-                    : action === "terminal"
-                      ? "Terminal"
-                      : "Finder"}
+                  {action === "finder" ? (
+                    <FolderOpen />
+                  ) : action === "remote" ? (
+                    <GitBranch />
+                  ) : (
+                    <TerminalSquare />
+                  )}
+                  {label}
                 </Button>
               ))}
             </div>
             <div className="flex flex-wrap gap-2">
-              {actions.map(([action, label]) => (
+              {projectCommandActions.map(({ action, label }) => (
                 <Button
                   key={action}
                   size="sm"
                   variant="secondary"
                   onClick={() => void launch(repository.id, action)}
-                  disabled={pending !== null}
+                  disabled={
+                    pending !== null ||
+                    repository.state.availability !== "available"
+                  }
                 >
                   <Play /> {label}
                 </Button>
