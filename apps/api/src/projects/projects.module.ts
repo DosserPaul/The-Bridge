@@ -27,5 +27,6 @@ import { ProjectWorkspaceService } from './project-workspace.service';
     ProjectLocalActionsService,
     ProjectHealthService,
   ],
+  exports: [ProjectsService],
 })
 export class ProjectsModule {}

@@ -133,6 +133,26 @@ type ProjectTab =
   | "commercial"
   | "health";
 
+const projectTabs: readonly ProjectTab[] = [
+  "overview",
+  "repositories",
+  "issues",
+  "changes",
+  "environments",
+  "pipelines",
+  "activity",
+  "roadmap",
+  "decisions",
+  "local-actions",
+  "documents",
+  "commercial",
+  "health",
+];
+
+function isProjectTab(value: string | null): value is ProjectTab {
+  return Boolean(value) && projectTabs.includes(value as ProjectTab);
+}
+
 type ProjectHealth = {
   label: string;
   detail: string;
@@ -447,11 +467,14 @@ export function ProjectDetails({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     const searchParams = new URL(window.location.href).searchParams;
-    const targetTab = searchParams.has("change")
+    const requestedTab = searchParams.get("tab");
+    const targetTab: ProjectTab | null = searchParams.has("change")
       ? "changes"
       : searchParams.has("issue")
         ? "issues"
-        : null;
+        : isProjectTab(requestedTab)
+          ? requestedTab
+          : null;
     if (!targetTab) return;
     const timeout = window.setTimeout(() => setActiveTab(targetTab), 0);
     return () => window.clearTimeout(timeout);

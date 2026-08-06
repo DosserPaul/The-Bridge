@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils";
 
 const categoryLabels: Record<ActivityCategory, string> = {
   clients: "Clients",
+  today: "Today",
   projects: "Projet",
   repositories: "Repositories",
   integrations: "Intégrations",

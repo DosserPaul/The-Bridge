@@ -1,5 +1,5 @@
-import { ProjectsList } from "@/components/projects/projects-list";
+import { TodayCommandCenter } from "@/components/today/today-command-center";
 
 export default function Home() {
-  return <ProjectsList />;
+  return <TodayCommandCenter />;
 }

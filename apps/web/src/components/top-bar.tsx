@@ -15,6 +15,7 @@ import {
   PlugZap,
   Search,
   ShieldCheck,
+  Sun,
   Users,
   X,
   Zap,
@@ -24,6 +25,7 @@ import { ProjectHeaderActions } from "@/components/projects/project-header-actio
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const mobileNavigation = [
+  { label: "Today", icon: Sun, href: "/" },
   { label: "Inbox", icon: Inbox },
   { label: "Clients", icon: Users, href: "/clients" },
   { label: "Projects", icon: FolderKanban, href: "/projects" },
@@ -37,6 +39,7 @@ const mobileNavigation = [
 ];
 
 function breadcrumbs(pathname: string): string[] {
+  if (pathname === "/") return ["Workspace", "Today"];
   if (pathname.startsWith("/activity")) return ["Workspace", "Activity"];
   if (pathname === "/clients/new") return ["Workspace", "Clients", "New"];
   if (pathname.endsWith("/edit") && pathname.startsWith("/clients/")) {
@@ -65,7 +68,7 @@ function breadcrumbs(pathname: string): string[] {
   if (pathname.startsWith("/settings/data")) {
     return ["Workspace", "Settings", "Data"];
   }
-  return ["Workspace", "Projects"];
+  return ["Workspace", "Today"];
 }
 
 export function TopBar() {

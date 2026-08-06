@@ -38,6 +38,7 @@ const databaseTables: Record<BackupTable, string> = {
   projectFinances: 'project_finances',
   projectTimeEntries: 'project_time_entries',
   localActionRuns: 'local_action_runs',
+  todayFocusItems: 'today_focus_items',
   clientContacts: 'client_contacts',
   activityLogs: 'activity_logs',
 };
@@ -45,6 +46,7 @@ const databaseTables: Record<BackupTable, string> = {
 const deletionOrder: BackupTable[] = [
   'activityLogs',
   'localActionRuns',
+  'todayFocusItems',
   'projectTimeEntries',
   'projectFinances',
   'projectDocuments',
@@ -68,6 +70,7 @@ const insertionOrder: BackupTable[] = [
   'projectFinances',
   'projectTimeEntries',
   'localActionRuns',
+  'todayFocusItems',
   'clientContacts',
   'activityLogs',
 ];
@@ -243,7 +246,7 @@ export class DataService {
     }
     if (
       input.format !== DATA_BACKUP_FORMAT ||
-      ![1, 2, DATA_BACKUP_VERSION].includes(Number(input.version)) ||
+      ![1, 2, 3, DATA_BACKUP_VERSION].includes(Number(input.version)) ||
       typeof input.createdAt !== 'string' ||
       !isRecord(input.source) ||
       (input.source.dialect !== 'sqlite' &&
@@ -263,6 +266,7 @@ export class DataService {
       projectFinances: input.data.projectFinances ?? [],
       projectTimeEntries: input.data.projectTimeEntries ?? [],
       localActionRuns: input.data.localActionRuns ?? [],
+      todayFocusItems: input.data.todayFocusItems ?? [],
     };
     for (const table of backupTables) {
       const rows = normalizedData[table];

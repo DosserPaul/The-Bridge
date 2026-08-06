@@ -214,6 +214,40 @@ describe('AppController (e2e)', () => {
     });
   });
 
+  it('/today/focus persists priorities and logs every mutation', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/today/focus')
+      .send({ title: 'Validate the daily command center' })
+      .expect(201);
+    const createdBody = created.body as { id: string };
+
+    await request(app.getHttpServer()).get('/today').expect(200);
+
+    let activity = await request(app.getHttpServer())
+      .get('/activity?category=today')
+      .expect(200);
+    expect(activity.body).toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ action: 'today.focus.created' })],
+    });
+
+    await request(app.getHttpServer())
+      .patch(`/today/focus/${createdBody.id}`)
+      .send({ completed: true })
+      .expect(200);
+    await request(app.getHttpServer())
+      .delete(`/today/focus/${createdBody.id}`)
+      .expect(204);
+
+    activity = await request(app.getHttpServer())
+      .get('/activity?category=today')
+      .expect(200);
+    expect(activity.body).toMatchObject({
+      total: 3,
+      counts: { success: 3, error: 0 },
+    });
+  });
+
   afterEach(async () => {
     await app.close();
   });

@@ -599,6 +599,7 @@ export interface ConnectGitHubInput {
 
 export type ActivityCategory =
   | "clients"
+  | "today"
   | "projects"
   | "repositories"
   | "integrations"
@@ -648,6 +649,69 @@ export interface ActivityQuery {
   limit?: number;
 }
 
+export type TodaySignalKind =
+  | "deadline"
+  | "follow_up"
+  | "repository"
+  | "pipeline"
+  | "pull_request"
+  | "issue"
+  | "priority";
+
+export type TodaySignalSeverity = "critical" | "warning" | "info";
+export type TodayFocusPriority = "critical" | "high" | "normal";
+
+export interface TodayProjectSummary {
+  id: string;
+  name: string;
+  logoDataUrl: string | null;
+}
+
+export interface TodaySignal {
+  id: string;
+  kind: TodaySignalKind;
+  severity: TodaySignalSeverity;
+  title: string;
+  description: string;
+  project: TodayProjectSummary;
+  repository: { id: string; name: string } | null;
+  href: string;
+  dueAt: string | null;
+}
+
+export interface TodayFocusItem {
+  id: string;
+  sourceKey: string | null;
+  project: TodayProjectSummary | null;
+  title: string;
+  description: string | null;
+  href: string | null;
+  priority: TodayFocusPriority;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TodayView {
+  generatedAt: string;
+  summary: {
+    activeProjects: number;
+    signals: number;
+    critical: number;
+    dueSoon: number;
+    runningPipelines: number;
+  };
+  signals: TodaySignal[];
+  focus: TodayFocusItem[];
+  recentActivity: ActivityItem[];
+  degradedSources: Array<{
+    projectId: string;
+    projectName: string;
+    source: "pipelines" | "pull_requests" | "issues";
+    message: string;
+  }>;
+}
+
 export type BackupTable =
   | "clients"
   | "providerConnections"
@@ -659,6 +723,7 @@ export type BackupTable =
   | "projectFinances"
   | "projectTimeEntries"
   | "localActionRuns"
+  | "todayFocusItems"
   | "clientContacts"
   | "activityLogs";
 
@@ -1189,6 +1254,46 @@ export function getActivity(
   signal?: AbortSignal,
 ): Promise<ActivityDetail> {
   return apiRequest<ActivityDetail>(`/activity/${activityId}`, { signal });
+}
+
+export function getToday(signal?: AbortSignal): Promise<TodayView> {
+  return apiRequest<TodayView>("/today", {
+    signal,
+    headers: { "X-Activity-Silent": "true" },
+  });
+}
+
+export function addTodayFocus(input: {
+  sourceKey?: string;
+  projectId?: string;
+  title: string;
+  description?: string;
+  href?: string;
+  priority?: TodayFocusPriority;
+}): Promise<TodayFocusItem> {
+  return apiRequest<TodayFocusItem>("/today/focus", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateTodayFocus(
+  focusId: string,
+  input: {
+    completed?: boolean;
+    title?: string;
+    description?: string;
+    priority?: TodayFocusPriority;
+  },
+): Promise<TodayFocusItem> {
+  return apiRequest<TodayFocusItem>(`/today/focus/${focusId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function removeTodayFocus(focusId: string): Promise<void> {
+  return apiRequest<void>(`/today/focus/${focusId}`, { method: "DELETE" });
 }
 
 export function getDataStatus(signal?: AbortSignal): Promise<DataStatus> {
