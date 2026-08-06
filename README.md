@@ -91,6 +91,8 @@ credential-store data.
 | `pnpm dev:api`                           | Run only NestJS                               |
 | `pnpm db:postgres:start`                 | Start the optional PostgreSQL container       |
 | `pnpm db:postgres:stop`                  | Stop the optional PostgreSQL container        |
+| `pnpm format`                            | Format the complete repository                |
+| `pnpm format:check`                      | Check repository formatting                   |
 | `pnpm lint`                              | Lint all workspaces                           |
 | `pnpm typecheck`                         | Type-check all workspaces                     |
 | `pnpm test`                              | Run API unit tests                            |
@@ -165,6 +167,21 @@ The local API currently exposes the following resource groups:
 - `/api/activity`
 - `/api/integrations/github`
 - `/api/integrations/gitlab`
+
+## CI/CD and releases
+
+Pull requests into `develop` and `main` run formatting, lint, type checks,
+SQLite and PostgreSQL tests, API end-to-end tests, production builds, dependency
+auditing, and full-history secret scanning. Coverage is uploaded as a workflow
+artifact and must remain above the documented initial threshold.
+
+Version tags matching `v<major>.<minor>.<patch>` must point to a commit contained
+in `main`. A successful release workflow verifies the tagged source again and
+creates the corresponding GitHub release with generated notes.
+
+See [the CI/CD guide](docs/ci-cd.md) for workflow behavior, required branch
+checks, security limitations of the current private repository, and the release
+procedure.
 
 ## Git workflow
 

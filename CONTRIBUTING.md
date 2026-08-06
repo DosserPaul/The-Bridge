@@ -58,12 +58,18 @@ in the commit body.
 Run the complete local verification suite:
 
 ```bash
+pnpm format:check
 pnpm lint
 pnpm typecheck
 pnpm test
 pnpm --filter api test:e2e --runInBand
 pnpm build
 ```
+
+Pull requests must pass the `Required checks` and `Security checks` GitHub
+Actions jobs. The API coverage gate starts at 45% for statements, functions,
+and lines, and 35% for branches. New code should improve meaningful coverage
+rather than only preserving the threshold.
 
 Also verify that:
 
@@ -81,3 +87,6 @@ Explain:
 - why the change is needed;
 - how it was verified;
 - any security, data-migration, or compatibility impact.
+
+See [docs/ci-cd.md](docs/ci-cd.md) for branch rules, workflow permissions, and
+the release process.
